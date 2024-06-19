@@ -52,7 +52,7 @@ pub(crate) fn erf(x: f64) -> f64 {
 
 #[inline(always)]
 pub(crate) fn lgam(x: f64) -> f64 {
-    x.ln_gamma().0
+    libm::lgamma_r(x).0
 }
 
 #[inline(always)]

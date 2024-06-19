@@ -1,12 +1,13 @@
 use super::util::*;
 use crate::Sample;
 
+const L: usize = 7;
+const Q: usize = 1280;
+
 // sample must have length greater than 7*1280.
 pub(crate) fn universal(sample: &Sample) -> f64 {
     const E: f64 = 6.1962507;
     const VAR: f64 = 3.125;
-    const L: usize = 7;
-    const Q: usize = 1280;
     let n = sample.e.len();
     if n < L * Q {
         return 0.0;

@@ -1,11 +1,6 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
-#![feature(test)]
-#![feature(slice_as_chunks)]
-#![feature(float_gamma)]
-#![feature(new_uninit)]
 
-extern crate core;
 use testsuits::util::popcount;
 mod testsuits;
 
@@ -25,6 +20,23 @@ enum TestFuncs {
     LinearComplexity,   // 13.linear_complexity 线性复杂度检测
     Universal,          // 14.universal Maurer通用统计检测
     DiscreteFourier,    // 15.discrete_fourier 离散傅立叶检测
+}
+
+pub struct TestResult{
+    pv1: f64,
+    qv1: f64,
+    pv2: Option<f64>,
+    qv2: Option<f64>,
+}
+
+impl TestResult{
+    pub fn pass(&self, alpha: f64) -> bool{
+        if let Some(pv2) = self.pv2 {
+            (self.pv1 >= alpha) && (pv2 >= alpha)
+        }else{
+            self.pv1 >= alpha
+        }
+    }
 }
 
 pub struct Sample {
@@ -62,63 +74,81 @@ impl Sample {
         return bytes.into();
     }
 
-    pub fn frequency(&self) -> f64 {
-        testsuits::frequency(self)
+    pub fn bits(&self)->usize{
+        return self.e.len();
     }
-    pub fn block_frequency(&self, m: i32) -> f64 {
-        testsuits::block_frequency(self, m)
+    pub fn frequency(&self) -> TestResult {
+        let pv = testsuits::frequency(self);
+        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
     }
-
-    pub fn poker(&self, m: i32) -> f64 {
-        testsuits::poker(self, m)
-    }
-
-    pub fn serial(&self, m: i32) -> (f64, f64) {
-        testsuits::serial(self, m)
+    pub fn block_frequency(&self, m: i32) -> TestResult {
+        let pv = testsuits::block_frequency(self, m);
+        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
     }
 
-    pub fn runs(&self) -> f64 {
-        testsuits::runs(self)
+    pub fn poker(&self, m: i32) -> TestResult {
+        let pv = testsuits::poker(self, m);
+        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
     }
 
-    pub fn runs_distribution(&self) -> f64 {
-        testsuits::runs_distribution(self)
+    pub fn serial(&self, m: i32) -> TestResult {
+        let pv = testsuits::serial(self, m);
+        TestResult{pv1:pv.0, qv1: pv.0, pv2:Some(pv.1),qv2:Some(pv.1)}
     }
 
-    pub fn longest_run(&self) -> (f64, f64) {
-        testsuits::longest_run(self)
+    pub fn runs(&self) -> TestResult {
+        let pv = testsuits::runs(self);
+        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
     }
 
-    pub fn binary_derivative(&self, k: i32) -> f64 {
-        testsuits::binary_derivative(self, k)
+    pub fn runs_distribution(&self) -> TestResult {
+        let pv = testsuits::runs_distribution(self);
+        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
     }
 
-    pub fn autocorrelation(&self, d: i32) -> f64 {
-        testsuits::autocorrelation(self, d)
+    pub fn longest_run(&self) -> TestResult {
+        let pv = testsuits::longest_run(self);
+        TestResult{pv1:pv.0, qv1: pv.0, pv2:Some(pv.1),qv2:Some(pv.1)}
     }
 
-    pub fn rank(&self) -> f64 {
-        testsuits::rank(self)
+    pub fn binary_derivative(&self, k: i32) -> TestResult {
+        let pv = testsuits::binary_derivative(self, k);
+        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
     }
 
-    pub fn cumulative_sums(&self) -> (f64, f64) {
-        testsuits::cumulative_sums(self)
+    pub fn autocorrelation(&self, d: i32) -> TestResult {
+        let pv = testsuits::autocorrelation(self, d);
+        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
     }
 
-    pub fn approximate_entropy(&self, m: i32) -> f64 {
-        testsuits::approximate_entropy(self, m)
+    pub fn rank(&self) -> TestResult {
+        let pv = testsuits::rank(self);
+        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
     }
 
-    pub fn linear_complexity(&self, m: i32) -> f64 {
-        testsuits::linear_complexity(self, m)
+    pub fn cumulative_sums(&self) -> TestResult {
+        let pv = testsuits::cumulative_sums(self);
+        TestResult{pv1:pv.0, qv1: pv.0, pv2:Some(pv.1),qv2:Some(pv.1)}
     }
 
-    pub fn universal(&self) -> f64 {
-        testsuits::universal(self)
+    pub fn approximate_entropy(&self, m: i32) -> TestResult {
+        let pv = testsuits::approximate_entropy(self, m);
+        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
     }
 
-    pub fn discrete_fourier(&self) -> f64 {
-        testsuits::discrete_fourier(self)
+    pub fn linear_complexity(&self, m: i32) -> TestResult {
+        let pv = testsuits::linear_complexity(self, m);
+        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+    }
+
+    pub fn universal(&self) -> TestResult {
+        let pv = testsuits::universal(self);
+        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+    }
+
+    pub fn discrete_fourier(&self) -> TestResult {
+        let pv = testsuits::discrete_fourier(self);
+        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
     }
 }
 
@@ -225,28 +255,29 @@ mod tests {
     fn test_frequency() {
         let tv = &TEST_VEC[TestFuncs::Frequency as usize];
         let sample: Sample = tv.epsilon_str.into();
-        assert_eq_f64(sample.frequency(), tv.pvalue[0]);
+        assert_eq_f64(sample.frequency().pv1, tv.pvalue[0]);
     }
 
     #[test]
     fn test_block_frequency() {
         let tv = &TEST_VEC[TestFuncs::BlockFrequency as usize];
         let sample: Sample = tv.epsilon_str.into();
-        assert_eq_f64(sample.block_frequency(tv.param), tv.pvalue[0]);
+        assert_eq_f64(sample.block_frequency(tv.param).pv1, tv.pvalue[0]);
     }
 
     #[test]
     fn test_poker() {
         let tv = &TEST_VEC[TestFuncs::Poker as usize];
         let sample: Sample = tv.epsilon_str.into();
-        assert_eq_f64(sample.poker(tv.param), tv.pvalue[0]);
+        assert_eq_f64(sample.poker(tv.param).pv1, tv.pvalue[0]);
     }
 
     #[test]
     fn test_serial() {
         let tv = &TEST_VEC[TestFuncs::Serial as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let (pvalue1, pvalue2) = sample.serial(tv.param);
+        let pvalue1 = sample.serial(tv.param).pv1;
+        let pvalue2 = sample.serial(tv.param).pv2.unwrap();
         assert_eq_f64(pvalue1, tv.pvalue[0]);
         assert_eq_f64(pvalue2, tv.pvalue[1]);
     }
@@ -255,21 +286,22 @@ mod tests {
     fn test_runs() {
         let tv = &TEST_VEC[TestFuncs::Runs as usize];
         let sample: Sample = tv.epsilon_str.into();
-        assert_eq_f64(sample.runs(), tv.pvalue[0]);
+        assert_eq_f64(sample.runs().pv1, tv.pvalue[0]);
     }
 
     #[test]
     fn test_runs_distribution() {
         let tv = &TEST_VEC[TestFuncs::RunsDistribution as usize];
         let sample: Sample = tv.epsilon_str.into();
-        assert_eq_f64(sample.runs_distribution(), tv.pvalue[0]);
+        assert_eq_f64(sample.runs_distribution().pv1, tv.pvalue[0]);
     }
 
     #[test]
     fn test_longest_run() {
         let tv = &TEST_VEC[TestFuncs::LongestRun as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let (pv0, pv1) = sample.longest_run();
+        let pv0 = sample.longest_run().pv1;
+        let pv1 = sample.longest_run().pv2.unwrap();
         assert_eq_f64(pv0, tv.pvalue[0]);
         assert_eq_f64(pv1, tv.pvalue[1]);
     }
@@ -278,7 +310,7 @@ mod tests {
     fn test_binary_derivative() {
         let tv = &TEST_VEC[TestFuncs::BinaryDerivative as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.binary_derivative(tv.param);
+        let pv = sample.binary_derivative(tv.param).pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
     }
 
@@ -286,7 +318,7 @@ mod tests {
     fn test_autocorrelation() {
         let tv = &TEST_VEC[TestFuncs::Autocorrelation as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.autocorrelation(tv.param);
+        let pv = sample.autocorrelation(tv.param).pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
     }
 
@@ -294,8 +326,7 @@ mod tests {
     fn test_rank() {
         let tv = &TEST_VEC[TestFuncs::Rank as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.rank();
-        // let pv = sample.c_rank();
+        let pv = sample.rank().pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
     }
 
@@ -303,7 +334,8 @@ mod tests {
     fn test_cumulative_sums() {
         let tv = &TEST_VEC[TestFuncs::CumulativeSums as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let (pv0, pv1) = sample.cumulative_sums();
+        let pv0 = sample.cumulative_sums().pv1;
+        let pv1 = sample.cumulative_sums().pv2.unwrap();
         assert_eq_f64(pv0, tv.pvalue[0]);
         assert_eq_f64(pv1, tv.pvalue[1]);
     }
@@ -312,7 +344,7 @@ mod tests {
     fn test_approximate_entropy() {
         let tv = &TEST_VEC[TestFuncs::ApproximateEntropy as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.approximate_entropy(tv.param);
+        let pv = sample.approximate_entropy(tv.param).pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
     }
 
@@ -320,7 +352,7 @@ mod tests {
     fn test_linear_complexity() {
         let tv = &TEST_VEC[TestFuncs::LinearComplexity as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.linear_complexity(tv.param);
+        let pv = sample.linear_complexity(tv.param).pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
     }
 
@@ -328,7 +360,7 @@ mod tests {
     fn test_universal() {
         let tv = &TEST_VEC[TestFuncs::Universal as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.universal();
+        let pv = sample.universal().pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
     }
 
@@ -336,28 +368,8 @@ mod tests {
     fn test_discrete_fourier() {
         let tv = &TEST_VEC[TestFuncs::DiscreteFourier as usize];
         let sample: Sample = tv.epsilon_str.into();
-        let pv = sample.discrete_fourier();
+        let pv = sample.discrete_fourier().pv1;
         assert_eq_f64(pv, tv.pvalue[0]);
-    }
-
-    extern crate test;
-    use test::Bencher;
-    #[bench]
-    fn bench_linear_complexity(b: &mut Bencher) {
-        let sample: Sample = E.into();
-        b.iter(|| sample.linear_complexity(1000));
-    }
-
-    #[bench]
-    fn bench_rank(b: &mut Bencher) {
-        let sample: Sample = E.into();
-        b.iter(|| sample.rank());
-    }
-
-    #[bench]
-    fn bench_discrete_fourier(b: &mut Bencher) {
-        let sample: Sample = E.into();
-        b.iter(|| sample.discrete_fourier());
     }
 
     // Test for all 15 test functions.
@@ -385,7 +397,7 @@ mod tests {
         println!("poker: {:.2} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.serial(5).0);
+        pv.push(sample.serial(5));
         let now = Instant::now();
         println!("serial: {:.2} s", (now - last).as_secs_f64());
         let last = now;
@@ -400,7 +412,7 @@ mod tests {
         println!("runs_distribution: {:.2} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.longest_run().0);
+        pv.push(sample.longest_run());
         let now = Instant::now();
         println!("longest_run: {:.2} s", (now - last).as_secs_f64());
         let last = now;
@@ -420,7 +432,7 @@ mod tests {
         println!("rank: {:.2} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.cumulative_sums().0);
+        pv.push(sample.cumulative_sums());
         let now = Instant::now();
         println!("cumulative_sums: {:.2} s", (now - last).as_secs_f64());
         let last = now;

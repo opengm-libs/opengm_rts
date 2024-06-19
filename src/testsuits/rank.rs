@@ -10,13 +10,12 @@ const MATRIX_SIZE: usize = MATRIX_DIM * MATRIX_DIM;
 pub(crate) fn rank(sample: &Sample) -> f64 {
     let e = &sample.e;
 
-    let (chunks, _) = e.as_chunks::<MATRIX_SIZE>();
-    let N = chunks.len();
-
+    let N = e.len()/MATRIX_SIZE;
+    
     if N == 0 {
         return 0.00;
     }
-
+    
     let p_32 = 0.2888;
     let p_31 = 0.5776;
     let p_30 = 0.1336;
@@ -24,8 +23,8 @@ pub(crate) fn rank(sample: &Sample) -> f64 {
     let mut F_32 = 0;
     let mut F_31 = 0;
     let mut m = Matrix::default();
-    for chunk in chunks {
-        m.from_slice(chunk.as_slice());
+    for chunk in e.chunks_exact(MATRIX_SIZE) {
+        m.from_slice(chunk);
         let rank = m.compute_rank();
         if 32 == rank {
             F_32 += 1
@@ -161,10 +160,10 @@ mod test {
         let e = e;
         let mut m = Matrix::default();
         m.from_slice(e.as_slice());
-        println!("{}", m);
+        // println!("{}", m);
 
         m.swap_row(0, 1);
-        println!("{}", m);
-        println!("{:?}", e);
+        // println!("{}", m);
+        // println!("{:?}", e);
     }
 }

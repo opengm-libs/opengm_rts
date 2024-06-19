@@ -23,8 +23,8 @@ pub(crate) fn runs_distribution(sample: &Sample) -> f64 {
     }
 
     // bi[0] and gi[0] are dummy.
-    let mut bi = unsafe { Box::<[i32]>::new_zeroed_slice(k + 1).assume_init() };
-    let mut gi = unsafe { Box::<[i32]>::new_zeroed_slice(k + 1).assume_init() };
+    let mut bi = vec![0; k+1];//unsafe { Box::<[i32]>::new_zeroed_slice(k + 1).assume_init() };
+    let mut gi = vec![0; k+1];//unsafe { Box::<[i32]>::new_zeroed_slice(k + 1).assume_init() };
 
     // current_run > 0 means the 1's run in the current
     // current_run < 0 means the 0's run in the current

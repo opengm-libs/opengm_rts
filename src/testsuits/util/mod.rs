@@ -7,34 +7,29 @@ pub(crate) use math::*;
 pub(crate) fn popcount(e: &[u8]) -> u64 {
     let mut sum = 0u64;
 
-    let (bigchunks, remainder) = e.as_chunks::<2040>();
-    for bigchunk in bigchunks {
-        let mut tmp_sum = 0u64;
-        for chunk in unsafe { bigchunk.as_chunks_unchecked::<8>() } {
-            tmp_sum += u64::from_ne_bytes(*chunk)
-        }
-        for i in 0..8 {
-            sum += (tmp_sum >> 8 * i) & 0xff;
-        }
+    // 2040 = 255*8
+    for chunk in e.chunks_exact(255 * 8) {
+        let tmp_sum: u64 = chunk
+            .chunks_exact(8)
+            .into_iter()
+            .map(|x| u64::from_ne_bytes(x.try_into().unwrap()))
+            .sum();
+        sum += (0..8).map(|i| (tmp_sum >> 8 * i) & 0xff).sum::<u64>();
     }
 
-    let (chunks, remainder) = remainder.as_chunks::<8>();
-    let mut tmp_sum = 0u64;
-    for chunk in chunks {
-        tmp_sum += u64::from_ne_bytes(*chunk)
-    }
-    for i in 0..8 {
-        sum += (tmp_sum >> 8 * i) & 0xff;
-    }
+    let remainder = &e[e.len() - e.len() % (255 * 8)..];
+    let tmp_sum: u64 = remainder
+        .chunks_exact(8)
+        .into_iter()
+        .map(|x| u64::from_ne_bytes(x.try_into().unwrap()))
+        .sum();
+    sum += (0..8).map(|i| (tmp_sum >> 8 * i) & 0xff).sum::<u64>();
 
-    for a in remainder {
-        sum += *a as u64;
-    }
+    let remainder = &remainder[remainder.len() - remainder.len() % 8..];
+    sum += remainder.iter().sum::<u8>() as u64;
 
     sum
 }
-
-
 
 #[inline(always)]
 pub(crate) fn saturating<T: core::cmp::PartialOrd>(n: T, min: T, max: T) -> T {
@@ -64,25 +59,5 @@ mod tests {
             }
             assert_eq!(naive_popcount(e.as_slice()), popcount(e.as_slice()));
         }
-    }
-
-    extern crate test;
-    use test::Bencher;
-    #[bench]
-    fn bench_popcount(b: &mut Bencher) {
-        let mut e = Vec::new();
-        for i in 0u64..(1000000) {
-            e.push((i * i * i % 7 % 2) as u8)
-        }
-        b.iter(|| popcount(e.as_slice()));
-    }
-
-    #[bench]
-    fn bench_naive_popcount(b: &mut Bencher) {
-        let mut e = Vec::new();
-        for i in 0u64..(1000000) {
-            e.push((i * i * i % 7 % 2) as u8)
-        }
-        b.iter(|| naive_popcount(e.as_slice()));
     }
 }
