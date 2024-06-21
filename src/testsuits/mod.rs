@@ -9,7 +9,6 @@ mod runs_distribution;
 mod longest_run;
 mod binary_derivative;
 mod autocorrelation;
-
 mod rank;
 mod cumulative_sums;
 mod approximate_entropy;

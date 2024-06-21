@@ -1,8 +1,16 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
-pub(crate) fn cumulative_sums(sample: &Sample) -> (f64, f64) {
-    (cumulative_sums_inner(&sample.e, true), cumulative_sums_inner(&sample.e, false))
+/// 累加和检测
+pub(crate) fn cumulative_sums(sample: &Sample) -> TestResult {
+    let pv1 = cumulative_sums_inner(&sample.e, true);
+    let pv2 = cumulative_sums_inner(&sample.e, false);
+    TestResult {
+        pv1: pv1,
+        qv1: pv1,
+        pv2: Some(pv2),
+        qv2: Some(pv2),
+    }
 }
 
 fn cumulative_sums_inner(e: &[u8], forward: bool) -> f64 {

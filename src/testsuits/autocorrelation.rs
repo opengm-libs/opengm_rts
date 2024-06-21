@@ -1,7 +1,8 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
-pub(crate) fn autocorrelation(sample: &Sample, d: i32) -> f64{
+/// 自相关检测
+pub(crate) fn autocorrelation(sample: &Sample, d: i32) -> TestResult{
     let epsilon = &sample.e;
     let n = epsilon.len();
     let d = d as usize;
@@ -12,5 +13,13 @@ pub(crate) fn autocorrelation(sample: &Sample, d: i32) -> f64{
 	}
 
     let v = (2.0 * sum as f64 - (n-d) as f64) / sqrt((n-d) as f64);
-	return  erfc(abs(v)/SQRT2);
+	let pv = erfc(abs(v)/SQRT2);
+	let qv = erfc(v/SQRT2)/2.0;
+
+    TestResult {
+        pv1: pv,
+        qv1: qv,
+        pv2: None,
+        qv2: None,
+    }
 }

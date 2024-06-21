@@ -1,5 +1,5 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
 #[inline(always)]
 fn longest_run_internal(e: &[u8], K: i32, M: i32, V: &[i32], pi: &[f64]) -> (f64, f64) {
@@ -43,8 +43,8 @@ fn longest_run_internal(e: &[u8], K: i32, M: i32, V: &[i32], pi: &[f64]) -> (f64
 
 }
 
-// 7. 块内最大游程检测
-pub(crate) fn longest_run(sample: &Sample) -> (f64, f64) {
+/// 块内最大游程检测
+pub(crate) fn longest_run(sample: &Sample) -> TestResult {
     if sample.e.len() < 128 {
         panic!("longest run test: n too short, at least 128\n");
     }
@@ -101,5 +101,13 @@ pub(crate) fn longest_run(sample: &Sample) -> (f64, f64) {
         pi[6] = 0.073366;
     }
 
-    longest_run_internal(&sample.e, K, M, &V, &pi)
+    let (pv1, pv2) = longest_run_internal(&sample.e, K, M, &V, &pi);
+
+    TestResult {
+        pv1: pv1,
+        qv1: pv1,
+        pv2: Some(pv2),
+        qv2: Some(pv2),
+    }
+
 }

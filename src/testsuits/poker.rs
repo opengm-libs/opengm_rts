@@ -1,10 +1,10 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
 const MAX_M :usize = 8;
 
-// 3. 扑克检测
-pub(crate) fn poker(sample: &Sample, m: i32) -> f64 {
+/// 扑克检测
+pub(crate) fn poker(sample: &Sample, m: i32) -> TestResult {
     let m = m as usize;
     let n = sample.e.len() / m;
     let power: usize = 1 << m;
@@ -21,6 +21,11 @@ pub(crate) fn poker(sample: &Sample, m: i32) -> f64 {
 
     let sum = ni.iter().map(|x| x * x).sum::<usize>();
     let v = (power as f64) / (n as f64) * (sum as f64) - (n as f64);
-    let p_value = igamc((power as f64 - 1.0) / 2.0, v / 2.0);
-    p_value
+    let pv = igamc((power as f64 - 1.0) / 2.0, v / 2.0);
+    TestResult {
+        pv1: pv,
+        qv1: pv,
+        pv2: None,
+        qv2: None,
+    }
 }

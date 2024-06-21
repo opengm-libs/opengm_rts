@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
 
-use testsuits::util::popcount;
 mod testsuits;
+use testsuits::util::popcount;
+use testsuits::util::*;
 
 enum TestFuncs {
     Frequency,          // 1.frequency 频度检测
@@ -22,18 +23,19 @@ enum TestFuncs {
     DiscreteFourier,    // 15.discrete_fourier 离散傅立叶检测
 }
 
-pub struct TestResult{
-    pv1: f64,
-    qv1: f64,
-    pv2: Option<f64>,
-    qv2: Option<f64>,
+#[derive(Default)]
+pub struct TestResult {
+    pub pv1: f64,
+    pub qv1: f64,
+    pub pv2: Option<f64>,
+    pub qv2: Option<f64>,
 }
 
-impl TestResult{
-    pub fn pass(&self, alpha: f64) -> bool{
+impl TestResult {
+    pub fn pass(&self, alpha: f64) -> bool {
         if let Some(pv2) = self.pv2 {
             (self.pv1 >= alpha) && (pv2 >= alpha)
-        }else{
+        } else {
             self.pv1 >= alpha
         }
     }
@@ -74,82 +76,87 @@ impl Sample {
         return bytes.into();
     }
 
-    pub fn bits(&self)->usize{
+    pub fn bits(&self) -> usize {
         return self.e.len();
     }
     pub fn frequency(&self) -> TestResult {
-        let pv = testsuits::frequency(self);
-        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+        testsuits::frequency(self)
     }
+
     pub fn block_frequency(&self, m: i32) -> TestResult {
-        let pv = testsuits::block_frequency(self, m);
-        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+        testsuits::block_frequency(self, m)
     }
 
     pub fn poker(&self, m: i32) -> TestResult {
-        let pv = testsuits::poker(self, m);
-        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+        testsuits::poker(self, m)
     }
 
     pub fn serial(&self, m: i32) -> TestResult {
-        let pv = testsuits::serial(self, m);
-        TestResult{pv1:pv.0, qv1: pv.0, pv2:Some(pv.1),qv2:Some(pv.1)}
+        testsuits::serial(self, m)
     }
 
     pub fn runs(&self) -> TestResult {
-        let pv = testsuits::runs(self);
-        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+        testsuits::runs(self)
     }
 
     pub fn runs_distribution(&self) -> TestResult {
-        let pv = testsuits::runs_distribution(self);
-        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+        testsuits::runs_distribution(self)
     }
 
     pub fn longest_run(&self) -> TestResult {
-        let pv = testsuits::longest_run(self);
-        TestResult{pv1:pv.0, qv1: pv.0, pv2:Some(pv.1),qv2:Some(pv.1)}
+        testsuits::longest_run(self)
     }
 
     pub fn binary_derivative(&self, k: i32) -> TestResult {
-        let pv = testsuits::binary_derivative(self, k);
-        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+        testsuits::binary_derivative(self, k)
     }
 
     pub fn autocorrelation(&self, d: i32) -> TestResult {
-        let pv = testsuits::autocorrelation(self, d);
-        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+        testsuits::autocorrelation(self, d)
     }
 
     pub fn rank(&self) -> TestResult {
-        let pv = testsuits::rank(self);
-        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+        testsuits::rank(self)
     }
 
     pub fn cumulative_sums(&self) -> TestResult {
-        let pv = testsuits::cumulative_sums(self);
-        TestResult{pv1:pv.0, qv1: pv.0, pv2:Some(pv.1),qv2:Some(pv.1)}
+        testsuits::cumulative_sums(self)
     }
 
     pub fn approximate_entropy(&self, m: i32) -> TestResult {
-        let pv = testsuits::approximate_entropy(self, m);
-        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+        testsuits::approximate_entropy(self, m)
     }
 
     pub fn linear_complexity(&self, m: i32) -> TestResult {
-        let pv = testsuits::linear_complexity(self, m);
-        TestResult{pv1:pv, qv1: pv, pv2:None,qv2: None}
+         testsuits::linear_complexity(self, m)
     }
 
     pub fn universal(&self) -> TestResult {
-        let pv = testsuits::universal(self);
-        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+        testsuits::universal(self)
     }
 
     pub fn discrete_fourier(&self) -> TestResult {
-        let pv = testsuits::discrete_fourier(self);
-        TestResult{pv1:pv, qv1: pv/2.0, pv2:None,qv2: None}
+        testsuits::discrete_fourier(self)
     }
+}
+
+/// GM/T 0005-2021, 6.3 样本分布均匀性判定
+/// The value of qv[i] should distribute formally in [0,1].
+pub fn qvalue_distribution(qv: &[f64], k: usize) -> f64 {
+    if qv.len() <= 1 {
+        return 1.0;
+    }
+
+    let s = qv.len();
+    let mut F = vec![0.0; k];
+
+    // i/k <= v < (i+1)/k => i <= kv < i+1
+    for v in qv {
+        F[(*v * k as f64).floor() as usize] += 1.0;
+    }
+    let sk = s as f64 / k as f64;
+    let V: f64 = F.iter().map(|f| (*f - sk) * (*f - sk) / sk).sum();
+    igamc((k - 1) as f64 / 2.0, V / 2.0)
 }
 
 #[cfg(test)]
@@ -455,7 +462,7 @@ mod tests {
         pv.push(sample.discrete_fourier());
         let now = Instant::now();
         println!("discrete_fourier: {:.2} s", (now - last).as_secs_f64());
-        
+
         println!("total: {:.2} s", (Instant::now() - start).as_secs_f64());
     }
 }

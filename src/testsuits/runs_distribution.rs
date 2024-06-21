@@ -1,8 +1,8 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
-// 6. 游程分布检测
-pub(crate) fn runs_distribution(sample: &Sample) -> f64 {
+/// 游程分布检测
+pub(crate) fn runs_distribution(sample: &Sample) -> TestResult {
     // n          k
     // 100      : 2
     // 1000     : 5
@@ -23,8 +23,8 @@ pub(crate) fn runs_distribution(sample: &Sample) -> f64 {
     }
 
     // bi[0] and gi[0] are dummy.
-    let mut bi = vec![0; k+1];//unsafe { Box::<[i32]>::new_zeroed_slice(k + 1).assume_init() };
-    let mut gi = vec![0; k+1];//unsafe { Box::<[i32]>::new_zeroed_slice(k + 1).assume_init() };
+    let mut bi = vec![0; k+1];
+    let mut gi = vec![0; k+1];
 
     // current_run > 0 means the 1's run in the current
     // current_run < 0 means the 0's run in the current
@@ -68,5 +68,12 @@ pub(crate) fn runs_distribution(sample: &Sample) -> f64 {
     ei = t / powi(2.0, k as i32);
     v += (powi(bi[k] as f64 - ei, 2) + powi(gi[k] as f64 - ei, 2)) / ei;
 
-    igamc((k - 1) as f64, v / 2.0)
+    let pv = igamc((k - 1) as f64, v / 2.0);
+    TestResult {
+        pv1: pv,
+        qv1: pv,
+        pv2: None,
+        qv2: None,
+    }
+
 }

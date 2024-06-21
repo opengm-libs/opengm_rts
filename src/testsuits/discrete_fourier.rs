@@ -1,11 +1,13 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
 use rustfft::{
     num_complex::{Complex, ComplexFloat},
     FftPlanner,
 };
-pub(crate) fn discrete_fourier(sample: &Sample) -> f64 {
+
+/// 离散傅里叶检测
+pub(crate) fn discrete_fourier(sample: &Sample) -> TestResult {
     let e = &sample.e;
     let n = e.len();
     let fft = FftPlanner::<f64>::new().plan_fft_forward(n);
@@ -25,5 +27,13 @@ pub(crate) fn discrete_fourier(sample: &Sample) -> f64 {
     }
 
     let d = (n1 as f64 - n0) / sqrt(n as f64 * 0.95 * 0.05 / 3.8);
-    erfc(abs(d) / sqrt(2.0))
+    let pv = erfc(abs(d) / sqrt(2.0));
+    let qv = erfc(d/ sqrt(2.0))/2.0;
+
+    TestResult {
+        pv1: pv,
+        qv1: qv,
+        pv2: None,
+        qv2: None,
+    }
 }

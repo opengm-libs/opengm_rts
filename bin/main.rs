@@ -6,6 +6,11 @@ use std::io::Result;
 use std::{env, fs};
 
 const ALPHA: f64 = 0.01;
+
+// GM/T 0005-2021 6.3
+const SAMPLE_DISTRIBUTION_K: usize = 10;
+const SAMPLE_DISTRIBUTION_ALPHA_T: f64 = 0.0001;
+
 mod tester;
 use tester::*;
 
@@ -202,11 +207,6 @@ fn get_testers(funcs: &[TestFuncs], bits: usize) -> Vec<Box<dyn TestFn>> {
 
 fn sample_test(s: &Sample, testers: &Vec<Box<dyn TestFn>>) -> Vec<TestResultWrapper> {
     testers.iter().map(|t| t.test_func(s)).collect()
-    // let mut result = Vec::new();
-    // for f in testers {
-    //     result.push(f.test_func(s))
-    // }
-    // result
 }
 
 fn waterline(alpha: f64, s: usize) -> usize {
@@ -214,10 +214,10 @@ fn waterline(alpha: f64, s: usize) -> usize {
     (s * (1.0 - alpha - 3.0 * sqrt(alpha * (1.0 - alpha) / s))).ceil() as usize
 }
 
-fn randomness_test(samples: &Vec<Sample>, test_funcs: &[TestFuncs]) -> bool {
+fn randomness_test(samples: &Vec<Sample>, test_funcs: &[TestFuncs]) -> (bool, bool) {
     if samples.len() == 0 || test_funcs.len() == 0 {
         println!("No tests to do!");
-        return true;
+        return (true, true);
     }
     let testers = get_testers(test_funcs, samples[0].bits());
 
@@ -226,39 +226,65 @@ fn randomness_test(samples: &Vec<Sample>, test_funcs: &[TestFuncs]) -> bool {
         .map(|s| sample_test(s, &testers))
         .collect();
     let line = waterline(ALPHA, samples.len());
-    let mut res = true;
+    let mut pvalue_res = true;
+    let mut qvalue_res: bool = true;
 
     // results[i][j] is the i-th sample's j'th test
     for j in 0..testers.len() {
         let mut passed = 0;
+        let mut q1values = Vec::with_capacity(samples.len());
+        let mut q2values = Vec::with_capacity(samples.len());
+
         for i in 0..samples.len() {
             if results[i][j].result.pass(ALPHA) {
                 passed += 1;
             }
+
+            q1values.push(results[i][j].result.qv1);
+
+            if let Some(qv2) = results[i][j].result.qv2 {
+                q2values.push(qv2)
+            }
         }
+        let pt1 = qvalue_distribution(&q1values, SAMPLE_DISTRIBUTION_K);
+        let pt2 = qvalue_distribution(&q2values, SAMPLE_DISTRIBUTION_K);
+
+        let this_qvalue_res = pt1 >= SAMPLE_DISTRIBUTION_ALPHA_T && pt2 >= SAMPLE_DISTRIBUTION_ALPHA_T;
+
         if let Some(param) = results[0][j].param {
             println!(
-                "{:2}: Test {} param={:<6}  {:>4}/{:<4} {}",
+                "{:2}: Test {} param={:<6}   P-Value: {:>4}/{:<4} {} Q-Value: {}",
                 j,
                 results[0][j].test_func,
                 param,
                 passed,
                 samples.len(),
-                if passed >= line { "Pass" } else { "Failed" }
+                if passed >= line { "Pass,  " } else { "Failed," },
+                if q2values.is_empty() {
+                    format!("pt={:.6},          {}", pt1, this_qvalue_res)
+                } else {
+                    format!("pt={:.6} {:.6}, {}", pt1, pt2, this_qvalue_res)
+                }
             );
         } else {
             println!(
-                "{:2}: Test {}               {:>4}/{:<4} {}",
+                "{:2}: Test {}                P-Value: {:>4}/{:<4} {} Q-Value: {}",
                 j,
                 results[0][j].test_func,
                 passed,
                 samples.len(),
-                if passed >= line { "Pass" } else { "Failed" }
+                if passed >= line { "Pass,  " } else { "Failed," },
+                if q2values.is_empty() {
+                    format!("pt={:.6},          {}", pt1, this_qvalue_res)
+                } else {
+                    format!("pt={:.6} {:.6}, {}", pt1, pt2, this_qvalue_res)
+                }
             );
         }
-        res = res & (passed >= line);
+        pvalue_res = pvalue_res && (passed >= line);
+        qvalue_res = qvalue_res && this_qvalue_res;
     }
-    res
+    (pvalue_res, qvalue_res)
 }
 
 fn read_dir(current_dir: &str) -> Result<Vec<Sample>> {
@@ -278,7 +304,6 @@ fn read_dir(current_dir: &str) -> Result<Vec<Sample>> {
     Ok(result)
 }
 
-const USAGE: &str = "Usage: ./opengm_rts <path/to/data/dir>";
 const ALL_TESTS_FUNCS: [TestFuncs; 15] = [
     TestFuncs::Frequency,
     TestFuncs::BlockFrequency,
@@ -297,6 +322,17 @@ const ALL_TESTS_FUNCS: [TestFuncs; 15] = [
     TestFuncs::DiscreteFourier,
 ];
 
+const USAGE: &str = r#"opengm_rts v0.1.1
+Copyright (c) 2024 The OpenGM Group <opengm@yeah.net>
+
+Usage: ./opengm_rts <path/to/data/dir>
+
+Example: 
+$ ls data
+000.bin 001.bin 002.bin 003.bin 004.bin ... 999.bin
+$ ./opengm_rts ./data
+"#;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
@@ -306,10 +342,16 @@ fn main() {
     let result = read_dir(args[1].as_str())
         .expect(&String::from(format!("Read {} error", args[1].as_str())));
 
-    if randomness_test(&result, &ALL_TESTS_FUNCS) {
-        println!("{} passed the randomness test", args[1]);
+    let (p, q) = randomness_test(&result, &ALL_TESTS_FUNCS);
+    if p {
+        println!("{} P-Value test pass", args[1]);
     } else {
-        println!("{} failed to pass the randomness test", args[1]);
+        println!("{} P-Value test failed", args[1]);
+    }
+    if q {
+        println!("{} Q-Value test pass", args[1]);
+    } else {
+        println!("{} Q-Value test failed", args[1]);
     }
 }
 
@@ -331,7 +373,7 @@ mod tests {
             samples.push(Sample::from(data.as_slice()));
         }
         let start = Instant::now();
-        println!("{}", randomness_test(&samples, &ALL_TESTS_FUNCS));
+        println!("{:?}", randomness_test(&samples, &ALL_TESTS_FUNCS));
         let elapsed = Instant::now() - start;
         println!("Used time: {} s", elapsed.as_secs_f64())
     }

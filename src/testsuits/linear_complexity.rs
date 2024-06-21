@@ -1,7 +1,8 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
-pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> f64 {
+/// 线性复杂度检测
+pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> TestResult {
     let mut nu = [0; 7];
     let pi = [
         0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833,
@@ -39,7 +40,13 @@ pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> f64 {
         let np = N as f64 * p;
         chi2 += powi(v as f64 - np, 2) / np;
     }
-    igamc(3.0, chi2 / 2.0)
+    let pv = igamc(3.0, chi2 / 2.0);
+    TestResult {
+        pv1: pv,
+        qv1: pv,
+        pv2: None,
+        qv2: None,
+    }
 }
 
 //

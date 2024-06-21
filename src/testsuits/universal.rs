@@ -1,16 +1,17 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
 const L: usize = 7;
 const Q: usize = 1280;
 
-// sample must have length greater than 7*1280.
-pub(crate) fn universal(sample: &Sample) -> f64 {
+/// 通用检测
+/// Note that sample must have length greater than 7*1280.
+pub(crate) fn universal(sample: &Sample) -> TestResult {
     const E: f64 = 6.1962507;
     const VAR: f64 = 3.125;
     let n = sample.e.len();
     if n < L * Q {
-        return 0.0;
+        return TestResult::default();
     }
     let K = n / L - Q;
     let p = 1 << L;
@@ -37,7 +38,14 @@ pub(crate) fn universal(sample: &Sample) -> f64 {
         T[dec_rep] = i;
     }
     let phi = sum / K as f64;
+    let V = (phi - E) / sigma;
 
-    let arg = abs(phi - E) / (SQRT2 * sigma);
-    erfc(arg)
+    let pv = erfc(abs(V) / SQRT2);
+    let qv = erfc(V / SQRT2) / 2.0;
+    TestResult {
+        pv1: pv,
+        qv1: qv,
+        pv2: None,
+        qv2: None,
+    }
 }

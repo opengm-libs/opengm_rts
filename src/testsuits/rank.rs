@@ -1,21 +1,22 @@
 use std::fmt::Display;
 
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
 // The fixed 32x32 matrix dimension
 const MATRIX_DIM: usize = 32;
 const MATRIX_SIZE: usize = MATRIX_DIM * MATRIX_DIM;
 
-pub(crate) fn rank(sample: &Sample) -> f64 {
+/// 矩阵秩检测
+pub(crate) fn rank(sample: &Sample) -> TestResult {
     let e = &sample.e;
 
-    let N = e.len()/MATRIX_SIZE;
-    
+    let N = e.len() / MATRIX_SIZE;
+
     if N == 0 {
-        return 0.00;
+        return TestResult::default();
     }
-    
+
     let p_32 = 0.2888;
     let p_31 = 0.5776;
     let p_30 = 0.1336;
@@ -45,7 +46,13 @@ pub(crate) fn rank(sample: &Sample) -> f64 {
     v += powi(F_31 - N * p_31, 2) / (N * p_31);
     v += powi(F_30 - N * p_30, 2) / (N * p_30);
 
-    igamc(1.0, v / 2.0)
+    let pv = igamc(1.0, v / 2.0);
+    TestResult {
+        pv1: pv,
+        qv1: pv,
+        pv2: None,
+        qv2: None,
+    }
 }
 
 struct Matrix {

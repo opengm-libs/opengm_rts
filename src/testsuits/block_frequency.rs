@@ -1,8 +1,8 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
-// 2. 块内频数检测
-pub(crate) fn block_frequency(sample: &Sample, m: i32) -> f64 {
+/// 块内频数检测
+pub(crate) fn block_frequency(sample: &Sample, m: i32) -> TestResult {
     let mut v = 0.0;
     let m = m as usize;
 
@@ -14,7 +14,13 @@ pub(crate) fn block_frequency(sample: &Sample, m: i32) -> f64 {
     }
 
     let n = (sample.e.len() / m) as f64;
-    igamc(n / 2.0, v * 2.0 * m as f64)
+    let pv = igamc(n / 2.0, v * 2.0 * m as f64);
+    TestResult {
+        pv1: pv,
+        qv1: pv,
+        pv2: None,
+        qv2: None,
+    }
 }
 
 

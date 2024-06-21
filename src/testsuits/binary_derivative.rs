@@ -1,7 +1,6 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
-// 8. 二元推导检测
 // Note: for k = 2^n - 1, ei = epsilon[i]^epsilon[i+1]^epsilon[i+2]^... ^epsilon[i+k]
 //  0: 0        1        2         3          4          5         6  ...
 //  1: 01       12       23        34         45         56        67 ...
@@ -19,10 +18,14 @@ use crate::Sample;
 // 13: 
 // 14: 
 // 15: 0-15     1-16
-pub(crate) fn binary_derivative(sample: &Sample, k:i32)-> f64 {
+
+/// 二元推导检测
+pub(crate) fn binary_derivative(sample: &Sample, k:i32)-> TestResult {
     let epsilon = &sample.e;
     let n = epsilon.len();
     let k = k as usize;
+    let pv;
+    let qv;
 
     // k is of the form 2^m - 1.
     if 1 == (k+1).count_ones(){
@@ -38,8 +41,8 @@ pub(crate) fn binary_derivative(sample: &Sample, k:i32)-> f64 {
             sum += ei as i64;
         }
         sum = 2 * sum - (n - k) as i64;
-        let v = abs(sum as f64) / sqrt((n - k) as f64);
-        return erfc(v / SQRT2);
+        pv = erfc(abs(sum as f64) / sqrt((n - k) as f64) / SQRT2);
+        qv = erfc((sum as f64) / sqrt((n - k) as f64) / SQRT2)/2.0;
     }else{
         // make a copy
         let mut tmp_epsilon = epsilon.clone();
@@ -53,8 +56,16 @@ pub(crate) fn binary_derivative(sample: &Sample, k:i32)-> f64 {
         for i in 0..(n-k){
             sum += (2 * (tmp_epsilon[i] as i8) - 1) as f64;
         }
-        let v = abs(sum) / sqrt((n - k) as f64);
 
-        return erfc(v / SQRT2);
+        pv = erfc(abs(sum) / sqrt((n - k) as f64) / SQRT2);
+        qv = erfc(sum / sqrt((n - k) as f64) / SQRT2)/2.0;
     }
+
+    TestResult {
+        pv1: pv,
+        qv1: qv,
+        pv2: None,
+        qv2: None,
+    }
+
 }

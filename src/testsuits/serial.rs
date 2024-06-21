@@ -1,5 +1,5 @@
 use super::util::*;
-use crate::Sample;
+use crate::{Sample, TestResult};
 
 fn psi2(e: &[u8], m: i32) -> f64 {
     let n = e.len();
@@ -39,9 +39,9 @@ fn psi2(e: &[u8], m: i32) -> f64 {
     sum / (n as f64) * (1 << m) as f64 - n as f64
 }
 
-// 4. 重叠子序列检测
-// 2 <= m <= 10
-pub(crate) fn serial(sample: &Sample, m: i32) -> (f64, f64) {
+/// 重叠子序列检测
+pub(crate) fn serial(sample: &Sample, m: i32) -> TestResult {
+    // note 2 <= m <= 10
     if m < 2 || m > 10 {
         panic!("serial: m invalid\n");
     }
@@ -52,8 +52,13 @@ pub(crate) fn serial(sample: &Sample, m: i32) -> (f64, f64) {
     let del1 = p0 - p1;
     let del2 = p0 - 2.0 * p1 + p2;
 
-    let pvalue1 = igamc(powi(2.0, m - 2), del1 / 2.0);
-    let pvalue2 = igamc(powi(2.0, m - 3), del2 / 2.0);
+    let pv1 = igamc(powi(2.0, m - 2), del1 / 2.0);
+    let pv2 = igamc(powi(2.0, m - 3), del2 / 2.0);
 
-    (pvalue1, pvalue2)
+    TestResult {
+        pv1: pv1,
+        qv1: pv1,
+        pv2: Some(pv2),
+        qv2: Some(pv2),
+    }
 }
