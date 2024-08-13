@@ -2,10 +2,13 @@
 #![allow(non_snake_case)]
 
 mod testsuits;
+mod tester;
+
+pub use tester::*;
 use testsuits::util::popcount;
 use testsuits::util::*;
 
-enum TestFuncs {
+pub enum TestFuncs {
     Frequency,          // 1.frequency 频度检测
     BlockFrequency,     // 2.block_frequency 块内频度检测
     Poker,              // 3.poker 扑克检测
@@ -23,7 +26,7 @@ enum TestFuncs {
     DiscreteFourier,    // 15.discrete_fourier 离散傅立叶检测
 }
 
-#[derive(Default)]
+#[derive(Default,Debug)]
 pub struct TestResult {
     pub pv1: f64,
     pub qv1: f64,
