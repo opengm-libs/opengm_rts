@@ -42,10 +42,8 @@ pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> TestResult {
     }
     let pv = igamc(3.0, chi2 / 2.0);
     TestResult {
-        pv1: pv,
-        qv1: pv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv: pv,
     }
 }
 

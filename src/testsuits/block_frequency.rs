@@ -16,10 +16,8 @@ pub(crate) fn block_frequency(sample: &Sample, m: i32) -> TestResult {
     let n = (sample.e.len() / m) as f64;
     let pv = igamc(n / 2.0, v * 2.0 * m as f64);
     TestResult {
-        pv1: pv,
-        qv1: pv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv: pv,
     }
 }
 

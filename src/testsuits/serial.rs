@@ -39,8 +39,8 @@ fn psi2(e: &[u8], m: i32) -> f64 {
     sum / (n as f64) * (1 << m) as f64 - n as f64
 }
 
-/// 重叠子序列检测
-pub(crate) fn serial(sample: &Sample, m: i32) -> TestResult {
+/// 重叠子序列p_value1检测
+pub(crate) fn serial1(sample: &Sample, m: i32) -> TestResult {
     // note 2 <= m <= 10
     if m < 2 || m > 10 {
         panic!("serial: m invalid\n");
@@ -48,17 +48,24 @@ pub(crate) fn serial(sample: &Sample, m: i32) -> TestResult {
 
     let p0 = psi2(&sample.e, m);
     let p1 = psi2(&sample.e, m - 1);
-    let p2 = psi2(&sample.e, m - 2);
     let del1 = p0 - p1;
+    let pv = igamc(powi(2.0, m - 2), del1 / 2.0);
+
+    TestResult { pv, qv: pv }
+}
+
+/// 重叠子序列p_value2检测
+pub(crate) fn serial2(sample: &Sample, m: i32) -> TestResult {
+    // note 2 <= m <= 10
+    if m < 2 || m > 10 {
+        panic!("serial: m invalid\n");
+    }
+    let p0 = psi2(&sample.e, m);
+    let p1 = psi2(&sample.e, m - 1);
+    let p2 = psi2(&sample.e, m - 2);
     let del2 = p0 - 2.0 * p1 + p2;
 
-    let pv1 = igamc(powi(2.0, m - 2), del1 / 2.0);
-    let pv2 = igamc(powi(2.0, m - 3), del2 / 2.0);
+    let pv = igamc(powi(2.0, m - 3), del2 / 2.0);
 
-    TestResult {
-        pv1: pv1,
-        qv1: pv1,
-        pv2: Some(pv2),
-        qv2: Some(pv2),
-    }
+    TestResult { pv, qv: pv }
 }

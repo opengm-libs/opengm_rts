@@ -2,14 +2,19 @@ use super::util::*;
 use crate::{Sample, TestResult};
 
 /// 累加和检测
-pub(crate) fn cumulative_sums(sample: &Sample) -> TestResult {
-    let pv1 = cumulative_sums_inner(&sample.e, true);
-    let pv2 = cumulative_sums_inner(&sample.e, false);
+pub(crate) fn cumulative_sums_forward(sample: &Sample) -> TestResult {
+    let pv = cumulative_sums_inner(&sample.e, true);
     TestResult {
-        pv1: pv1,
-        qv1: pv1,
-        pv2: Some(pv2),
-        qv2: Some(pv2),
+        pv,
+        qv: pv,
+    }
+}
+
+pub(crate) fn cumulative_sums_backward(sample: &Sample) -> TestResult {
+    let pv = cumulative_sums_inner(&sample.e, false);
+    TestResult {
+        pv,
+        qv: pv,
     }
 }
 

@@ -43,9 +43,7 @@ pub(crate) fn universal(sample: &Sample) -> TestResult {
     let pv = erfc(abs(V) / SQRT2);
     let qv = erfc(V / SQRT2) / 2.0;
     TestResult {
-        pv1: pv,
-        qv1: qv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv,
     }
 }

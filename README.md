@@ -7,7 +7,14 @@ opengm_rts是随机数检测函数库, 遵循GM/T 0005-2021 随机性检测规�
 
 包括15个随机性测试函数以及命令行程序,方便对1000组1百万比特的样本进行随机性测试, 应用程序也可通过定制api调用实现开机检测和周期检测.
 
-# Usage
+图形界面程序见https://github.com/opengm-libs/opengm_rts_gui
+
+# Build & Usage
+Build the command line executable:
+```
+cargo build --bin opengm_rts --release
+```
+
 The command line executable program:
 ```
 $ ./opengm_rts <dir/to/samples>

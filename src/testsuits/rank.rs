@@ -48,10 +48,8 @@ pub(crate) fn rank(sample: &Sample) -> TestResult {
 
     let pv = igamc(1.0, v / 2.0);
     TestResult {
-        pv1: pv,
-        qv1: pv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv: pv,
     }
 }
 

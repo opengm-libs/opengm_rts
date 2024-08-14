@@ -8,7 +8,6 @@ pub(crate) fn poker(sample: &Sample, m: i32) -> TestResult {
     let m = m as usize;
     let n = sample.e.len() / m;
     let power: usize = 1 << m;
-    // let mut ni = unsafe { Box::<[usize]>::new_zeroed_slice(power).assume_init() };
     let mut ni = vec![0; power];
 
     for i in 0..n {
@@ -23,9 +22,7 @@ pub(crate) fn poker(sample: &Sample, m: i32) -> TestResult {
     let v = (power as f64) / (n as f64) * (sum as f64) - (n as f64);
     let pv = igamc((power as f64 - 1.0) / 2.0, v / 2.0);
     TestResult {
-        pv1: pv,
-        qv1: pv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv: pv,
     }
 }

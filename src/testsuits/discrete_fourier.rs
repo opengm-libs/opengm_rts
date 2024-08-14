@@ -19,21 +19,14 @@ pub(crate) fn discrete_fourier(sample: &Sample) -> TestResult {
     fft.process(&mut f);
     let t = sqrt(2.995732274 * n as f64);
     let n0 = 0.95 * n as f64 / 2.0;
-    let mut n1 = 0;
-    for x in &f[0..n / 2 - 1] {
-        if x.abs() < t {
-            n1 += 1;
-        }
-    }
+    let n1 = f[0..=(n/2-1)].iter().map(|x| if x.abs() < t {1}else{0}).sum::<usize>();
 
     let d = (n1 as f64 - n0) / sqrt(n as f64 * 0.95 * 0.05 / 3.8);
     let pv = erfc(abs(d) / sqrt(2.0));
     let qv = erfc(d/ sqrt(2.0))/2.0;
 
     TestResult {
-        pv1: pv,
-        qv1: qv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv,
     }
 }

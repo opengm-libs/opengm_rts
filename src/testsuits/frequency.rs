@@ -7,9 +7,7 @@ pub(crate) fn frequency(sample: &Sample) -> TestResult {
     let pv = erfc(abs(s as f64) / sqrt((sample.e.len() * 2) as f64));
     let qv = erfc(s as f64 / sqrt((sample.e.len() * 2) as f64)) / 2.0;
     TestResult {
-        pv1: pv,
-        qv1: qv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv,
     }
 }

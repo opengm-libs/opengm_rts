@@ -33,9 +33,9 @@ pub(crate) fn popcount(e: &[u8]) -> u64 {
 
 #[inline(always)]
 pub(crate) fn saturating<T: core::cmp::PartialOrd>(n: T, min: T, max: T) -> T {
-    if n > max {
+    if n >= max {
         max
-    } else if n < min {
+    } else if n <= min {
         min
     } else {
         n

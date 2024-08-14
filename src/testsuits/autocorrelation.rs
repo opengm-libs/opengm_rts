@@ -17,9 +17,7 @@ pub(crate) fn autocorrelation(sample: &Sample, d: i32) -> TestResult{
 	let qv = erfc(v/SQRT2)/2.0;
 
     TestResult {
-        pv1: pv,
-        qv1: qv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv,
     }
 }

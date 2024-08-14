@@ -1,59 +1,46 @@
 use super::util::*;
 use crate::{Sample, TestResult};
 
+
 #[inline(always)]
-fn longest_run_internal(e: &[u8], K: i32, M: i32, V: &[i32], pi: &[f64]) -> (f64, f64) {
+fn longest_run_internal<const BIT: u8>(e: &[u8], K: i32, M: i32, V: &[i32], pi: &[f64]) -> f64 {
     let n = e.len();
     let N = n / (M as usize);
-    let mut nu0 = [0; 7]; // K at most 6
-    let mut nu1 = [0; 7]; // K at most 6
+    let mut nu = [0; 7]; // K at most 6
 
     for i in 0..N {
         let block = &e[i * (M as usize)..];
-        let mut longestRun0 = 0;
-        let mut longestRun1 = 0;
-        let mut currentRun0 = 0;
-        let mut currentRun1 = 0;
+        let mut longestRun = 0;
+        let mut currentRun = 0;
         for j in 0..(M as usize) {
-            if block[j] == 0 {
-                currentRun0 += 1;
-                longestRun0 = saturating(longestRun0, currentRun0, longestRun0);
-                currentRun1 = 0
+            if block[j] == BIT {
+                currentRun += 1;
+                if longestRun < currentRun {
+                    longestRun = currentRun;
+                }
             } else {
-                currentRun1 += 1;
-                longestRun1 = saturating(longestRun1, currentRun1, longestRun1);
-                currentRun0 = 0;
+                currentRun = 0;
             }
         }
-        nu0[(saturating(longestRun0, V[0], V[K as usize]) - V[0]) as usize] += 1;
-        nu1[(saturating(longestRun1, V[0], V[K as usize]) - V[0]) as usize] += 1;
+        nu[(saturating(longestRun, V[0], V[K as usize]) - V[0]) as usize] += 1;
     }
 
-    let mut chi2 = [0.0,0.0];
-    for i in 0..(K+1) {
+    let mut chi2 = 0.0;
+    for i in 0..(K + 1) {
         let N = N as f64;
-        let nu0i = nu0[i as usize] as f64;
-        let nu1i = nu1[i as usize] as f64;
+        let nui = nu[i as usize] as f64;
         let pii = pi[i as usize];
-        chi2[0] += (nu0i - N * pii) * (nu0i - N * pii) / (N * pii);
-        chi2[1] += (nu1i - N * pii) * (nu1i - N * pii) / (N * pii);
+        chi2 += (nui - N * pii) * (nui - N * pii) / (N * pii);
     }
-
-    (igamc(K as f64 / 2.0, chi2[0] / 2.0),igamc(K as f64 / 2.0, chi2[1] / 2.0))
-
+    igamc(K as f64 / 2.0, chi2 / 2.0)
 }
 
-/// 块内最大游程检测
-pub(crate) fn longest_run(sample: &Sample) -> TestResult {
-    if sample.e.len() < 128 {
-        panic!("longest run test: n too short, at least 128\n");
-    }
-
-    let n = sample.e.len();
+// ref: B.7 of GM/T 0005-2021
+fn get_params(n: usize) -> (i32, i32, [i32; 7], [f64; 7]) {
     let K;
     let M;
-    let mut pi = [0.0; 7];
     let mut V = [0; 7];
+    let mut pi = [0.0; 7];
 
     // ref: B.7 of GM/T 0005-2021
     if n < 6272 {
@@ -100,14 +87,37 @@ pub(crate) fn longest_run(sample: &Sample) -> TestResult {
         pi[5] = 0.068011;
         pi[6] = 0.073366;
     }
+    (K, M, V, pi)
+}
 
-    let (pv1, pv2) = longest_run_internal(&sample.e, K, M, &V, &pi);
-
-    TestResult {
-        pv1: pv1,
-        qv1: pv1,
-        pv2: Some(pv2),
-        qv2: Some(pv2),
+/// 块内最大0游程检测
+pub(crate) fn longest_run0(sample: &Sample) -> TestResult {
+    if sample.e.len() < 128 {
+        panic!("longest run test: n too short, at least 128\n");
     }
 
+    let (K, M, V, pi) = get_params(sample.e.len());
+
+    let pv = longest_run_internal::<0>(&sample.e, K, M, &V, &pi);
+
+    TestResult {
+        pv,
+        qv: pv,
+    }
+}
+
+/// 块内最大0游程检测
+pub(crate) fn longest_run1(sample: &Sample) -> TestResult {
+    if sample.e.len() < 128 {
+        panic!("longest run test: n too short, at least 128\n");
+    }
+
+    let (K, M, V, pi) = get_params(sample.e.len());
+
+    let pv = longest_run_internal::<1>(&sample.e, K, M, &V, &pi);
+
+    TestResult {
+        pv,
+        qv: pv,
+    }
 }

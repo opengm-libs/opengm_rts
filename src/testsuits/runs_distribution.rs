@@ -70,10 +70,8 @@ pub(crate) fn runs_distribution(sample: &Sample) -> TestResult {
 
     let pv = igamc((k - 1) as f64, v / 2.0);
     TestResult {
-        pv1: pv,
-        qv1: pv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv: pv,
     }
 
 }

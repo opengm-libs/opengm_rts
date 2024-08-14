@@ -62,10 +62,8 @@ pub(crate) fn binary_derivative(sample: &Sample, k:i32)-> TestResult {
     }
 
     TestResult {
-        pv1: pv,
-        qv1: qv,
-        pv2: None,
-        qv2: None,
+        pv,
+        qv,
     }
 
 }

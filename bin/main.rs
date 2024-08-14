@@ -2,7 +2,7 @@ use std::time::Instant;
 use opengm_rts::*;
 use std::env;
 
-const INFO: &str = r#"opengm_rts v0.1.3
+const INFO: &str = r#"opengm_rts v0.1.4
 Copyright (c) 2024 The OpenGM Group <opengm@yeah.net>
 "#;
 
@@ -14,6 +14,54 @@ $ ls data
 $ ./opengm_rts ./data
 "#;
 
+macro_rules! pprint {
+    ($v: expr, $n: expr) => {
+        {
+            let s = format!("{}", $v);
+            assert!(s.len() <= $n);
+            print!("{}", s);
+            (0..($n-s.len())).for_each(|_| print!(" "));
+        }
+    };
+}
+
+
+macro_rules! pprint_center {
+    ($v: expr, $n: expr) => {
+        {
+            let s = format!("{}", $v);
+            assert!(s.len() <= $n);
+            (0..($n-s.len())/2).for_each(|_| print!(" "));
+            print!("{}", s);
+            (0..($n-s.len() - ($n-s.len())/2)).for_each(|_| print!(" "));
+        }
+    };
+}
+
+const COL1 :usize = 24;
+const COL2: usize = 12;
+const COL3: usize = 6;
+const COL4: usize = 12;
+const COL5: usize = 6;
+const COL: usize = COL1 + COL2 + COL3 + COL4 + COL5 + 4;
+
+const PASS: &str = "PASS";
+const FAIL: &str = "FAIL";
+
+
+fn print_line(delimiter: &str){
+    print!("+");
+    (0..COL1).for_each(|_| print!("-"));
+    print!("{}", delimiter);
+    (0..COL2).for_each(|_| print!("-"));
+    print!("{}", delimiter);
+    (0..COL3).for_each(|_| print!("-"));
+    print!("{}", delimiter);
+    (0..COL4).for_each(|_| print!("-"));
+    print!("{}", delimiter);
+    (0..COL5).for_each(|_| print!("-"));
+    println!("+");
+}
 fn main() {
     println!("{}", INFO);
     let args: Vec<String> = env::args().collect();
@@ -40,44 +88,78 @@ fn main() {
     let mut pfailed_tests = Vec::new();
     let mut qfailed_tests = Vec::new();
 
+    print_line("-");
+    print!("|");pprint!(format!("Number of samples: {}", n), COL);println!("|");
+    print!("|");pprint!(format!("Bits per sample:   {}", bits), COL);println!("|");
+    print!("|");pprint!(format!("P_value threshold: {}", w), COL);println!("|");
+    print!("|");pprint!(format!("Q_value threshold: {}", SAMPLE_DISTRIBUTION_ALPHA_T), COL);println!("|");
+    
+    print_line("-");
+
+    print!("|");
+    pprint!(" ", COL1); print!(" ");
+    pprint_center!("p_value", COL2); print!(" ");
+    pprint!(" ", COL3); print!(" ");
+    pprint_center!("q_value", COL4); print!(" ");
+    pprint!(" ", COL5);println!("|");
+
+    print_line("+");
+
     for tester in testers{
-        println!("Test {}:", tester);
+        print!("|");
+        pprint!(tester, COL1);
+        print!("|");
 
         let passed  = count_pvalue_pass(&presult, tester, ALPHA);
-        println!("    p_value: {}/{}, {}",passed, n, passed >= w as i32);
-        println!("    q_value: {:.4}, {}",qresult.get(&tester).unwrap(),*qresult.get(&tester).unwrap() >= SAMPLE_DISTRIBUTION_ALPHA_T);
-        if passed < w as i32{
+        pprint_center!(format!("{}/{}", passed, n), COL2);
+        print!("|");
+
+        let pv_result = passed >= w as i32;
+        pprint_center!(if pv_result {PASS} else {FAIL}, COL3);
+        print!("|");
+
+        pprint_center!(format!("{:.4}",qresult.get(&tester).unwrap()), COL4);
+        print!("|");
+        let qv_result = *qresult.get(&tester).unwrap() >= SAMPLE_DISTRIBUTION_ALPHA_T;
+        pprint_center!(if qv_result {PASS} else {FAIL}, COL5);
+        println!("|");
+
+        if !pv_result {
             pfailed_tests.push(tester);
         }
-        if *qresult.get(&tester).unwrap() < SAMPLE_DISTRIBUTION_ALPHA_T{
+        if !qv_result{
             qfailed_tests.push(tester);
         }
-        println!("");
     }
 
-    if pfailed_tests.len() > 0{
-        print!("p_value tests failed: ");
-        for t in &pfailed_tests{
-            print!("{}", t);
-        }
-        println!("");
-    }
-    if qfailed_tests.len() > 0{
-        print!("q_value tests failed: ");
-        for t in &qfailed_tests{
-            print!("{}", t);
-        }
-        println!("");
+    print_line("+");
+    
+    // if pfailed_tests.len() > 0{
+    //     print!("p_value测试失败的检测有: {:?}\n\n", pfailed_tests.iter().map(|t| format!("{}",t)).collect::<Vec<_>>());
+    //     print_line("+");
+    // }
 
-    }
+
+    // if qfailed_tests.len() > 0{
+    //     print!("q_value测试失败的检测有: {:?}\n\n", qfailed_tests.iter().map(|t| format!("{}",t)).collect::<Vec<_>>());
+    //     print_line("+");
+    // }
+
 
     if pfailed_tests.len() == 0 && pfailed_tests.len() == 0{
-        println!("Randomness tests passed.")
+        print!("|");
+        pprint!("Randomness test PASS.", COL);
+        println!("|");
     }else{
-        println!("Randomness tests failed.")
+        print!("|");
+        println!("Randomness test FAIL.");
+        println!("|");
     }
-    println!("Randomness tests used time: {:?}",  (Instant::now() - start_time).as_secs_f64());
 
+    print!("|");
+    pprint!(format!("Used time: {} seconds",  (Instant::now() - start_time).as_secs()), COL);
+    println!("|");
+    print_line("-");
 }
 
 #[cfg(test)]
@@ -91,7 +173,7 @@ mod tests {
     #[test]
     fn test_rts() {
         let testers = get_testers(&ALL_TESTS_FUNCS, 1000000);
-        println!("{}", testers);
+        println!("{:?}", testers);
         let mut samples: Vec<Sample> = Vec::new();
         let mut data = vec![0u8; 1000000 / 8];
         let mut rng = rand::thread_rng();
