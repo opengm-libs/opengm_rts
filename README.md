@@ -20,6 +20,8 @@ The command line executable program:
 $ ./opengm_rts <dir/to/samples>
 ```
 
+![performace](/perf.jpg)
+
 # Performance
 For a signle thread test on Apple M1 Max, 1000 samples with one million bits each takes time within 5 minutes:
 
