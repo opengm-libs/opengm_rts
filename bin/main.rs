@@ -2,7 +2,7 @@ use std::time::Instant;
 use opengm_rts::*;
 use std::env;
 
-const INFO: &str = r#"opengm_rts v0.1.4
+const INFO: &str = r#"opengm_rts v0.2.0
 Copyright (c) 2024 The OpenGM Group <opengm@yeah.net>
 "#;
 
@@ -78,7 +78,7 @@ fn main() {
     let start_time = Instant::now();
 
     let n = samples.len();
-    let bits = samples[0].bits();
+    let bits = samples[0].len();
     let w = waterline(ALPHA, samples.len());
 
     let testers = get_testers(&ALL_TESTS_FUNCS, bits);
@@ -169,20 +169,22 @@ mod tests {
     use rand::RngCore;
 
     use super::*;
-
+    
+    // cargo test --release --package opengm_rts --bin opengm_rts --features build-binary -- tests::test_rts --exact --show-output 
     #[test]
     fn test_rts() {
-        let testers = get_testers(&ALL_TESTS_FUNCS, 1000000);
-        println!("{:?}", testers);
+        const NBITS :usize = 100*10000 / 8;
+        let testers = get_testers(&ALL_TESTS_FUNCS, NBITS);
+        // println!("{:?}", testers);
         let mut samples: Vec<Sample> = Vec::new();
-        let mut data = vec![0u8; 1000000 / 8];
+        let mut data = vec![0u8; NBITS];
         let mut rng = rand::thread_rng();
         for _ in 0..1000 {
             rng.fill_bytes(&mut data);
             samples.push(Sample::from(data.as_slice()));
         }
         let start = Instant::now();
-        println!("{:?}", randomness_test(&samples, &testers));
+        println!("{:#?}", randomness_test(&samples, &testers));
         let elapsed = Instant::now() - start;
         println!("Used time: {} s", elapsed.as_secs_f64())
     }

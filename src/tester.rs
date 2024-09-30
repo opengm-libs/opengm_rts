@@ -74,7 +74,7 @@ impl Display for TestFuncs {
     }
 }
 
-pub const ALL_TESTS_FUNCS: [TestFuncs; 18] = [
+pub const ALL_TESTS_FUNCS: &[TestFuncs] = &[
     TestFuncs::Frequency,
     TestFuncs::BlockFrequency,
     TestFuncs::Poker,

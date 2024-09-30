@@ -1,11 +1,14 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
+#![feature(test)]
 
 mod tester;
 mod testsuits;
+use std::sync::Mutex;
+
 pub use tester::*;
-use testsuits::util::popcount;
 use testsuits::util::*;
+
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum TestFuncs {
@@ -35,48 +38,121 @@ pub struct TestResult {
     pub qv: f64,
 }
 
+impl PartialEq for TestResult {
+    fn eq(&self, other: &Self) -> bool {
+        (self.pv - other.pv).abs() < 0.0001
+            && (self.qv - other.qv).abs() < 0.0001
+    }
+}
+
 impl TestResult {
     pub fn pass(&self, alpha: f64) -> bool {
         self.pv >= alpha
     }
 }
 
+const MAX_OVERLAPPING_PATTERN: usize = 7;
+
 pub struct Sample {
+    // Note: for a byte x, bit 0 is (x>>7) & 1 and bit 7 is x & 1.
+    // Note: for a u64 x, bit 0 is (x>>63) & 1 and bit 63 is x & 1.
+    b: Vec<u8>,
+    b64: Vec<u64>,
+    bit_length: usize,
+
+    #[cfg(test)]
     e: Vec<u8>,
-    
+
     // popcount for e
     pop: u64,
+
+    // 重叠子序列和近似熵
+    patterns: Mutex<Vec<Option<Vec<u64>>>>,
+    max_patterns: usize,
+}
+
+fn combine(b: &[u8]) -> Vec<u64> {
+    let mut b64 = Vec::with_capacity((b.len() + 7) / 8);
+    let full_chunks = b.len() & (!7);
+    for chunk in b[..full_chunks].chunks_exact(8) {
+        b64.push(u64::from_be_bytes(chunk.try_into().unwrap()));
+    }
+
+    if full_chunks < b.len() {
+        b64.push(u64_from_be_slice(&b[full_chunks..]));
+    }
+    b64
 }
 
 // from bit string("10100...")
 impl From<&str> for Sample {
     fn from(bit_string: &str) -> Self {
         let mut e = Vec::with_capacity(bit_string.len());
+        let mut b = Vec::with_capacity((bit_string.len() + 7) / 8);
         for c in bit_string.chars() {
             e.push(c as u8 - '0' as u8);
         }
-        let pop = popcount(&e.as_slice());
+
+        let full_chunks = e.len() & (!7);
+        for chunk in e[..full_chunks].chunks_exact(8) {
+            let mut x = 0;
+            for i in chunk {
+                x = (x << 1) | ((*i) as u8);
+            }
+            b.push(x);
+        }
+
+        if full_chunks < e.len() {
+            let mut c = 0;
+            for (i, x) in e[full_chunks..].iter().enumerate() {
+                c |= (*x) << (7 - i);
+            }
+            b.push(c);
+        }
+        let b64 = combine(&b);
+        let pop = popcount(&b);
         Sample {
+            b: b,
+            b64: b64,
+            #[cfg(test)]
             e: e,
+            bit_length: bit_string.len(),
             pop: pop,
+            patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN+1]),
+            max_patterns: MAX_OVERLAPPING_PATTERN,
         }
     }
 }
 
 impl From<&[u8]> for Sample {
     fn from(byte_slice: &[u8]) -> Self {
+        #[cfg(test)]
         let mut e = Vec::with_capacity(byte_slice.len() * 8);
-        for b in byte_slice {
+        #[cfg(test)]
+        for c in byte_slice {
             for j in 0..8 {
-                e.push((b >> (7 - j)) & 1)
+                e.push((c >> (7 - j)) & 1)
             }
         }
-        let pop = popcount(&e.as_slice());
+
+        let b64 = combine(&byte_slice);
+        let pop = popcount(&byte_slice);
         Sample {
-            e: e,
+            b: byte_slice.to_vec(),
+            b64,
+            bit_length: byte_slice.len() * 8,
+            #[cfg(test)]
+            e,
             pop: pop,
+            patterns:Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN+1]),
+            max_patterns: MAX_OVERLAPPING_PATTERN,
         }
     }
+}
+
+#[inline(always)]
+fn get_bit_unchecked(b64: &[u64], i: usize) -> u8 {
+    unsafe { (b64.get_unchecked(i / 64) >> (63 - (i & 63))) as u8 & 1 }
 }
 
 impl Sample {
@@ -84,9 +160,16 @@ impl Sample {
         return bytes.into();
     }
 
-    pub fn bits(&self) -> usize {
-        return self.e.len();
+    #[inline(always)]
+    pub fn get_bit_unchecked(&self, i: usize) -> u8 {
+        get_bit_unchecked(&self.b64, i)
     }
+
+    /// returns the number of bits of sample.
+    pub fn len(&self) -> usize {
+        self.bit_length
+    }
+
     pub fn frequency(&self) -> TestResult {
         testsuits::frequency(self)
     }
@@ -177,422 +260,213 @@ pub fn qvalue_distribution(qv: &[f64], k: usize) -> f64 {
     igamc((k - 1) as f64 / 2.0, V / 2.0)
 }
 
+
 #[cfg(test)]
 mod test_data;
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::collections::HashMap;
     use std::time::Instant;
-
+    use rand::RngCore;
     use super::test_data::E;
     use super::*;
 
-    struct TestVec {
-        epsilon_str: &'static str,
-        param: i32,
-        pvalue: f64,
-        qvalue: f64,
-    }
-
-    fn get_test_vec(f: TestFuncs) -> TestVec {
-        match f{
-            // 1.frequency 频度检测
-            TestFuncs::Frequency => TestVec{
-                epsilon_str:"11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param:0,
-                pvalue: 0.215925,
-                qvalue: 0.892038,
-            },
-            // 2.block_frequency 块内频度检测
-            TestFuncs::BlockFrequency => TestVec{
-                epsilon_str : "1100100100001111110110101010001000100001011010001100001000110100110001001100011001100010100010111000",
-                param : 10,
-                pvalue : 0.706438,
-                qvalue: 0.706438,
-            },
-            // 3.poker 扑克检测
-            TestFuncs::Poker => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param : 4,
-                pvalue : 0.213734,
-                qvalue: 0.213734,
-            },
-            // 4.serial
-            TestFuncs::Serial1 => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param : 2,
-                pvalue : 0.436868,
-                qvalue:  0.436868,
-            },
-            // 4.serial
-            TestFuncs::Serial2 => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param : 2,
-                pvalue : 0.723674,
-                qvalue: 0.723674,
-            },
-            // 5.runs 游程总数检测
-            TestFuncs::Runs => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param:0,
-                pvalue : 0.620729,
-                qvalue: 0.310364},
-            // 6.runs_distribution 游程分布检测
-            TestFuncs::RunsDistribution => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param:0,
-                pvalue : 0.970152,
-                qvalue: 0.970152,
-            },
-            // 7.longest_run 块内最大0游程检测
-            TestFuncs::LongestRun0 => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param:0,
-                pvalue : 0.839299,
-                qvalue: 0.839299},
-            // 7.longest_run 块内最大1游程检测
-            TestFuncs::LongestRun1 => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param:0,
-                pvalue : 0.180598,
-                qvalue: 0.180598,
-            },
-            // 8.binary_derivative 二元推导检测
-            TestFuncs::BinaryDerivative => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param : 3,
-                pvalue : 0.039669,
-                qvalue: 0.980166},
-            // 9.auto_correlation 自相关检测
-            TestFuncs::Autocorrelation => TestVec{
-                epsilon_str : "11001100000101010110110001001100111000000000001001001101010100010001001111010110100000001101011111001100111001101101100010110010",
-                param : 1,
-                pvalue : 0.790080,
-                qvalue: 0.395040,
-            },
-            // 10.rank 矩阵秩检测
-            TestFuncs::Rank => TestVec{
-                epsilon_str : E,
-                param: 1000000,
-                pvalue : 0.307543,
-                qvalue: 0.307543,
-            },
-            // 11.cumulative_sums 前向累加和检测
-            TestFuncs::CumulativeSumsForward => TestVec{
-                epsilon_str: "1100100100001111110110101010001000100001011010001100001000110100110001001100011001100010100010111000",
-                param:0,
-                pvalue : 0.219194,
-                qvalue:  0.219194,
-            },
-            // 11.cumulative_sums 后向累加和检测
-            TestFuncs::CumulativeSumsBackward => TestVec{
-                epsilon_str: "1100100100001111110110101010001000100001011010001100001000110100110001001100011001100010100010111000",
-                param:0,
-                pvalue : 0.114866,
-                qvalue:  0.114866,
-            },
-            // 12.approximate_entropy 近似熵检测
-            TestFuncs::ApproximateEntropy => TestVec{
-                epsilon_str: "1100100100001111110110101010001000100001011010001100001000110100110001001100011001100010100010111000",
-                param : 2,
-                pvalue : 0.235301,
-                qvalue: 0.235301,
-            },
-            // 13.linear_complexity 线性复杂度检测
-            TestFuncs::LinearComplexity => TestVec{
-                epsilon_str : E,
-                param : 1000,
-                pvalue : 0.844721,
-                qvalue: 0.844721,
-            },
-            // 14.universal Maurer通用统计检测
-            TestFuncs::Universal => TestVec{
-                epsilon_str : E,
-                param:0,
-                pvalue : 0.282568,
-                qvalue: 0.141284,
-            },
-            // 15.discrete_fourier_transform 离散傅立叶检测
-            TestFuncs::DiscreteFourier => TestVec{
-                epsilon_str: "1100100100001111110110101010001000100001011010001100001000110100110001001100011001100010100010111000",
-                param:0,
-                pvalue: 0.654721,
-                qvalue: 0.327360,
-            },
-        }
-    }
-
-    fn assert_eq_f64(a: f64, b: f64) {
-        if (a - b).abs() > 0.001 {
-            panic!("{} != {}", a, b);
-        }
-    }
-
-    #[test]
-    fn test_frequency() {
-        let tv = get_test_vec(TestFuncs::Frequency);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.frequency();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_block_frequency() {
-        let tv = get_test_vec(TestFuncs::BlockFrequency);
-        let sample: Sample = tv.epsilon_str.into();
-        assert_eq_f64(sample.block_frequency(tv.param).pv, tv.pvalue);
-        assert_eq_f64(sample.block_frequency(tv.param).qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_poker() {
-        let tv = get_test_vec(TestFuncs::Poker);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.poker(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_serial1() {
-        let tv = get_test_vec(TestFuncs::Serial1);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.serial1(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_serial2() {
-        let tv = get_test_vec(TestFuncs::Serial2);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.serial2(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_runs() {
-        let tv = get_test_vec(TestFuncs::Runs);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.runs();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_runs_distribution() {
-        let tv = get_test_vec(TestFuncs::RunsDistribution);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.runs_distribution();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_longest_run0() {
-        let tv = get_test_vec(TestFuncs::LongestRun0);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.longest_run0();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-    #[test]
-    fn test_longest_run1() {
-        let tv = get_test_vec(TestFuncs::LongestRun1);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.longest_run1();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_binary_derivative() {
-        let tv = get_test_vec(TestFuncs::BinaryDerivative);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.binary_derivative(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_autocorrelation() {
-        let tv = get_test_vec(TestFuncs::Autocorrelation);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.autocorrelation(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_rank() {
-        let tv = get_test_vec(TestFuncs::Rank);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.rank();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_cumulative_sums_forward() {
-        let tv = get_test_vec(TestFuncs::CumulativeSumsForward);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.cumulative_sums_forward();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_cumulative_sums_backward() {
-        let tv = get_test_vec(TestFuncs::CumulativeSumsBackward);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.cumulative_sums_backward();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_approximate_entropy() {
-        let tv = get_test_vec(TestFuncs::ApproximateEntropy);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.approximate_entropy(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_linear_complexity() {
-        let tv = get_test_vec(TestFuncs::LinearComplexity);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.linear_complexity(tv.param);
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_universal() {
-        let tv = get_test_vec(TestFuncs::Universal);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.universal();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
-
-    #[test]
-    fn test_discrete_fourier() {
-        let tv = get_test_vec(TestFuncs::DiscreteFourier);
-        let sample: Sample = tv.epsilon_str.into();
-        let result = sample.discrete_fourier();
-        assert_eq_f64(result.pv, tv.pvalue);
-        assert_eq_f64(result.qv, tv.qvalue);
-    }
 
     // Test for all 15 test functions.
+    // cargo test --release --package opengm_rts --lib -- tests::test_all --exact --show-output
     #[test]
     fn test_all() {
         let sample: Sample = E.into();
-        let mut pv = Vec::new();
+        let mut pv = HashMap::new();
 
         let start = Instant::now();
         let last = start;
 
-        pv.clear();
-        pv.push(sample.frequency());
+        pv.insert(TestFuncs::Frequency, sample.frequency());
         let now = Instant::now();
-        println!("frequency: {:.2} s", (now - last).as_secs_f64());
+        println!("frequency: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.block_frequency(10000));
+        pv.insert(TestFuncs::BlockFrequency, sample.block_frequency(10000));
         let now = Instant::now();
-        println!("block_frequency: {:.2} s", (now - last).as_secs_f64());
+        println!("block_frequency: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.poker(8));
+        pv.insert(TestFuncs::Poker, sample.poker(8));
         let now = Instant::now();
-        println!("poker: {:.2} s", (now - last).as_secs_f64());
+        println!("poker: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.serial1(5));
+        pv.insert(TestFuncs::Serial1, sample.serial1(5));
         let now = Instant::now();
-        println!("serial: {:.2} s", (now - last).as_secs_f64());
+        println!("serial: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.serial2(5));
+        pv.insert(TestFuncs::Serial2, sample.serial2(5));
         let now = Instant::now();
-        println!("serial: {:.2} s", (now - last).as_secs_f64());
+        println!("serial: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.runs());
+        pv.insert(TestFuncs::Runs, sample.runs());
         let now = Instant::now();
-        println!("runs: {:.2} s", (now - last).as_secs_f64());
+        println!("runs: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.runs_distribution());
+        pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
         let now = Instant::now();
-        println!("runs_distribution: {:.2} s", (now - last).as_secs_f64());
+        println!("runs_distribution: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.longest_run0());
+        pv.insert(TestFuncs::LongestRun0, sample.longest_run0());
         let now = Instant::now();
-        println!("longest_run0: {:.2} s", (now - last).as_secs_f64());
+        println!("longest_run0: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.longest_run1());
+        pv.insert(TestFuncs::LongestRun1, sample.longest_run1());
         let now = Instant::now();
-        println!("longest_run0: {:.2} s", (now - last).as_secs_f64());
+        println!("longest_run0: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.binary_derivative(7));
+        pv.insert(TestFuncs::BinaryDerivative, sample.binary_derivative(7));
         let now = Instant::now();
-        println!("binary_derivative: {:.2} s", (now - last).as_secs_f64());
+        println!("binary_derivative: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.autocorrelation(16));
+        pv.insert(TestFuncs::Autocorrelation, sample.autocorrelation(16));
         let now = Instant::now();
-        println!("autocorrelation: {:.2} s", (now - last).as_secs_f64());
+        println!("autocorrelation: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.rank());
+        pv.insert(TestFuncs::Rank, sample.rank());
         let now = Instant::now();
-        println!("rank: {:.2} s", (now - last).as_secs_f64());
+        println!("rank: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.cumulative_sums_forward());
+        pv.insert(
+            TestFuncs::CumulativeSumsForward,
+            sample.cumulative_sums_forward(),
+        );
         let now = Instant::now();
         println!(
-            "cumulative_sums_forward: {:.2} s",
+            "cumulative_sums_forward: {:.6} s",
             (now - last).as_secs_f64()
         );
         let last = now;
 
-        pv.push(sample.cumulative_sums_backward());
+        pv.insert(
+            TestFuncs::CumulativeSumsBackward,
+            sample.cumulative_sums_backward(),
+        );
         let now = Instant::now();
         println!(
-            "cumulative_sums_backward: {:.2} s",
+            "cumulative_sums_backward: {:.6} s",
             (now - last).as_secs_f64()
         );
         let last = now;
 
-        pv.push(sample.approximate_entropy(5));
+        pv.insert(TestFuncs::ApproximateEntropy, sample.approximate_entropy(5));
         let now = Instant::now();
-        println!("approximate_entropy: {:.2} s", (now - last).as_secs_f64());
+        println!("approximate_entropy: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.linear_complexity(1000));
+        pv.insert(TestFuncs::LinearComplexity, sample.linear_complexity(1000));
         let now = Instant::now();
-        println!("linear_complexity: {:.2} s", (now - last).as_secs_f64());
+        println!("linear_complexity: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.universal());
+        pv.insert(TestFuncs::Universal, sample.universal());
         let now = Instant::now();
-        println!("universal: {:.2} s", (now - last).as_secs_f64());
+        println!("universal: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.push(sample.discrete_fourier());
+        pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
         let now = Instant::now();
-        println!("discrete_fourier: {:.2} s", (now - last).as_secs_f64());
+        println!("discrete_fourier: {:.6} s", (now - last).as_secs_f64());
 
+        println!("total: {:.6} s", (Instant::now() - start).as_secs_f64());
+    }
+
+    // Test for all 15 test functions.
+    // cargo test --release --package opengm_rts --lib -- tests::test_all_time --exact --show-output
+    #[test]
+    fn test_all_time() {
+        let mut samples: Vec<Sample> = Vec::new();
+        let mut data = vec![0u8; 1000000/8];
+        let mut rng = rand::thread_rng();
+        for _ in 0..1000 {
+            rng.fill_bytes(&mut data);
+            samples.push(Sample::from(data.as_slice()));
+        }
+        let mut pv = HashMap::new();
+
+        // total: 74.3s
+        let start = Instant::now();
+        for sample in samples {
+            // 0s
+            // pv.insert(TestFuncs::Frequency, sample.frequency());
+
+            // // 0.01
+            // pv.insert(TestFuncs::BlockFrequency, sample.block_frequency(10000));
+
+            // pv.insert(TestFuncs::Poker, sample.poker(8));
+
+            // 0.90 s
+            // pv.insert(TestFuncs::Serial1, sample.serial1(7));
+
+            // 1.47 s
+            // pv.insert(TestFuncs::Serial2, sample.serial2(7));
+
+            // 0.02 s
+            // pv.insert(TestFuncs::Runs, sample.runs());
+
+            // 4.21 s - TODO
+            // pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
+
+            // 0.96s - TODO
+            // pv.insert(TestFuncs::LongestRun0, sample.longest_run0());
+            // pv.insert(TestFuncs::LongestRun1, sample.longest_run1());
+
+            // 0.83s, 0.04 s
+            // pv.insert(TestFuncs::BinaryDerivative, sample.binary_derivative(7));
+
+            // 0.65s, 0.02s
+            // pv.insert(TestFuncs::Autocorrelation, sample.autocorrelation(8));
+
+            // 6.67s -> 1.89 s
+            // pv.insert(TestFuncs::Rank, sample.rank());
+
+            // 1s
+            // pv.insert(
+            //     TestFuncs::CumulativeSumsForward,
+            //     sample.cumulative_sums_forward(),
+            // );
+
+            // 1s
+            // pv.insert(
+            //     TestFuncs::CumulativeSumsBackward,
+            //     sample.cumulative_sums_backward(),
+            // );
+
+            // 4.69s, 0.94s
+            // pv.insert(
+            //     TestFuncs::ApproximateEntropy,
+            //     sample.approximate_entropy(5),
+            // );
+
+            // m=1000:20s
+            // m=500:15s
+            // pv.insert(
+            //     TestFuncs::LinearComplexity,
+            //     sample.linear_complexity(500),
+            // );
+
+            // 0.58s
+            // pv.insert(TestFuncs::Universal, sample.universal());
+
+            // 27s
+            pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
+        }
         println!("total: {:.2} s", (Instant::now() - start).as_secs_f64());
     }
 }

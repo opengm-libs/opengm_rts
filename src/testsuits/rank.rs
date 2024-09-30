@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::util::*;
+use super::rank_u64::rank_u64;
 use crate::{Sample, TestResult};
 
 // The fixed 32x32 matrix dimension
@@ -9,6 +9,10 @@ const MATRIX_SIZE: usize = MATRIX_DIM * MATRIX_DIM;
 
 /// 矩阵秩检测
 pub(crate) fn rank(sample: &Sample) -> TestResult {
+    rank_u64(sample)
+}
+#[cfg(test)]
+pub(crate) fn rank_epsilon(sample: &Sample) -> TestResult {
     let e = &sample.e;
 
     let N = e.len() / MATRIX_SIZE;

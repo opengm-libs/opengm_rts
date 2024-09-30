@@ -1,6 +1,6 @@
 [package]
 name = "opengm_rts"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 authors = ["The OpenGM Group <opengm at yeah.net>"]
 description = "GM/T 0005-2021 randomness test suits written in Rust."
@@ -13,7 +13,7 @@ repository = "https://github.com/opengm-libs/opengm_rts"
 
 [dependencies]
 libm = "0.2"
-rustfft = "6.2.0"
+rustfft = "6.2"
 rayon = {version = "1.10", optional = true}
 rand = {version = "0.8", optional = true}
 
