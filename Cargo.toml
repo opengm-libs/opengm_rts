@@ -1,6 +1,6 @@
 [package]
 name = "opengm_rts"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["The OpenGM Group <opengm at yeah.net>"]
 description = "GM/T 0005-2021 randomness test suits written in Rust."

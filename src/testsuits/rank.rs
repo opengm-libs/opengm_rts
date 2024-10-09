@@ -13,6 +13,7 @@ pub(crate) fn rank(sample: &Sample) -> TestResult {
 }
 #[cfg(test)]
 pub(crate) fn rank_epsilon(sample: &Sample) -> TestResult {
+    use crate::{igamc, powi};
     let e = &sample.e;
 
     let N = e.len() / MATRIX_SIZE;

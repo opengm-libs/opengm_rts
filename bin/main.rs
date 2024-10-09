@@ -2,7 +2,7 @@ use std::time::Instant;
 use opengm_rts::*;
 use std::env;
 
-const INFO: &str = r#"opengm_rts v0.2.0
+const INFO: &str = r#"opengm_rts v0.2.1
 Copyright (c) 2024 The OpenGM Group <opengm@yeah.net>
 "#;
 

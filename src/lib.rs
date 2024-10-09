@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
-#![feature(test)]
+#![cfg_attr(test,feature(test))]
 
 mod tester;
 mod testsuits;
