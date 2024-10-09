@@ -24,7 +24,7 @@ $ ./opengm_rts <dir/to/samples>
 
 # Performance
 1000组,每组100万比特测试数据, Macbook M1 Max上多线程10秒完成.
-![performace](/perf.jpg)
+![performace](./perf.jpg)
 
 # About
 OpenGM is the (ongoing) open-source project for the GM/T standards.
