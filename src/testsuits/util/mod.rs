@@ -37,17 +37,17 @@ pub(crate) fn popcount(b: &[u8]) -> u64 {
     let mut pop = 0;
 
     let full_blocks16 = b.len() & (!15);
-    for chunk in b[..full_blocks16].chunks_exact(16){
+    for chunk in b[..full_blocks16].chunks_exact(16) {
         pop += u128::from_ne_bytes(chunk.try_into().unwrap()).count_ones();
     }
 
     let full_blocks8 = b.len() & (!7);
-    for chunk in b[full_blocks16..full_blocks8].chunks_exact(8){
+    for chunk in b[full_blocks16..full_blocks8].chunks_exact(8) {
         pop += u64::from_ne_bytes(chunk.try_into().unwrap()).count_ones();
     }
 
     let mut tail = 0;
-    for i in b[full_blocks8..].iter(){
+    for i in b[full_blocks8..].iter() {
         tail <<= 8;
         tail |= (*i) as u64;
     }
@@ -60,7 +60,7 @@ pub(crate) fn popcount(b: &[u8]) -> u64 {
 pub(crate) fn popcount_u64(b64: &[u64]) -> u64 {
     let mut pop = 0;
 
-    for b in b64{
+    for b in b64 {
         pop += (*b).count_ones();
     }
 
@@ -78,51 +78,59 @@ pub(crate) fn saturating<T: core::cmp::PartialOrd>(n: T, min: T, max: T) -> T {
     }
 }
 
+#[inline(always)]
+pub(crate) fn saturating_ceil<T: core::cmp::PartialOrd>(n: T, max: T) -> T {
+    if n >= max {
+        max
+    }else{
+        n
+    }
+}
+
 // return 0x000...111 of n "1" .
 #[inline(always)]
 pub(crate) fn lower_bits_mask(n: usize) -> u8 {
-    (!0) >> (8-n)
+    (!0) >> (8 - n)
 }
 
 // return 0x11...0 of n "1" .
 #[inline(always)]
-pub(crate) fn higher_bits_mask(n: usize) -> u8{
-    (!0) << (8-n)
+pub(crate) fn higher_bits_mask(n: usize) -> u8 {
+    (!0) << (8 - n)
 }
 
 // return 0x000...111 of n "1" .
 // 0 <= n <= 64
 #[inline(always)]
 pub(crate) fn lower_bits_mask_u64(n: usize) -> u64 {
-    (!0) >> (64-n)
+    (!0) >> (64 - n)
 }
 
 // return 0x11...0 of n "1" .
 #[inline(always)]
-pub(crate) fn higher_bits_mask_u64(n: usize) -> u64{
-    (!0) << (64-n)
+pub(crate) fn higher_bits_mask_u64(n: usize) -> u64 {
+    (!0) << (64 - n)
 }
 
 // set the higher n bits to zero.
 // 0 <= n < 64
 #[inline(always)]
-pub(crate) fn clear_higher_bits_u64(x:u64, n:usize)-> u64{
+pub(crate) fn clear_higher_bits_u64(x: u64, n: usize) -> u64 {
     (x << n) >> n
 }
 
 // set the lower n bits to zero.
 // 0 <= n < 64
 #[inline(always)]
-pub(crate) fn clear_lower_bits_u64(x:u64, n:usize)-> u64{
+pub(crate) fn clear_lower_bits_u64(x: u64, n: usize) -> u64 {
     (x >> n) << n
 }
 
 // return 0x0..1..1...0 with leadingzeros '0', and length of '1'.
 #[inline(always)]
 pub(crate) fn bits_mask_u64(leadingzeros: usize, ones_length: usize) -> u64 {
-    ((1 << ones_length) - 1) << (64-leadingzeros-ones_length)
+    ((1 << ones_length) - 1) << (64 - leadingzeros - ones_length)
 }
-
 
 // construct a u64 from a slice, where d.len() <= 8, padding zeros at LSB.
 // For example, d = [0x12,0x34,0x56,0x78], then returns 0x1234567800000000.
@@ -130,11 +138,11 @@ pub(crate) fn bits_mask_u64(leadingzeros: usize, ones_length: usize) -> u64 {
 pub(crate) fn u64_from_be_slice(d: &[u8]) -> u64 {
     let mut x = 0;
     let mut i = 0;
-    while i < d.len(){
+    while i < d.len() {
         x = (x << 8) | d[i] as u64;
-        i+=1;
+        i += 1;
     }
-    x <<= (8-i)*8;
+    x <<= (8 - i) * 8;
     x
 }
 
@@ -171,9 +179,7 @@ fn overlapping_patterns_process_u64(
 // 近似熵m可能取值:2,5,7
 // 参见:GM/T 0005-2021, 附录A
 pub(crate) fn overlapping_patterns(sample: &Sample, M: usize) -> Vec<u64> {
-    assert!(M <= sample.max_patterns);
-
-    if M == 0{
+    if M == 0 {
         return Vec::new();
     }
 
@@ -181,9 +187,11 @@ pub(crate) fn overlapping_patterns(sample: &Sample, M: usize) -> Vec<u64> {
         return vec![sample.len() as u64 - sample.pop, sample.pop];
     }
 
-    if let Ok(pat) = sample.patterns.lock(){
-        if let Some(v) = &pat[M]{
-            return v.clone();
+    if let Ok(pat) = sample.patterns.lock() {
+        if pat.len() >= M + 1 {
+            if let Some(v) = &pat[M] {
+                return v.clone();
+            }
         }
     }
 
@@ -236,8 +244,7 @@ pub(crate) fn overlapping_patterns(sample: &Sample, M: usize) -> Vec<u64> {
 
         // tail || b64[-1][63..63-last_b64_bits] || b64[0][..m-1]
         let mut x: u128 = (b64[0] >> (64 - (M - 1))) as u128;
-        x |= ((b64[b64.len() - 1] >> (64 - last_b64_bits)) << (M - 1))
-            as u128;
+        x |= ((b64[b64.len() - 1] >> (64 - last_b64_bits)) << (M - 1)) as u128;
         x |= (tail as u128) << (M - 1 + last_b64_bits);
         for _ in 0..(M - 1 + last_b64_bits) {
             let idx = (x as u64 & mask) as usize;
@@ -246,11 +253,13 @@ pub(crate) fn overlapping_patterns(sample: &Sample, M: usize) -> Vec<u64> {
         }
     }
 
-    if let Ok(mut pat) = sample.patterns.lock(){
-        if pat[M].is_none(){
-            pat[M] = Some(bucket.clone());
+    if let Ok(mut pat) = sample.patterns.lock() {
+        if pat.len() <= M {
+            pat.resize(M + 1, None);
         }
+        pat[M] = Some(bucket.clone());
     }
+
     bucket
 }
 
@@ -280,7 +289,10 @@ mod tests {
                 e.push((i * i * i % 7 % 2) as u8);
                 b.push((i * i * i * i) as u8);
             }
-            assert_eq!(naive_popcount(e.as_slice()), popcount_epsilon(e.as_slice()));
+            assert_eq!(
+                naive_popcount(e.as_slice()),
+                popcount_epsilon(e.as_slice())
+            );
             assert_eq!(naive_popcount(b.as_slice()), popcount(b.as_slice()));
         }
     }

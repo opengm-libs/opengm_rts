@@ -62,7 +62,7 @@ pub(crate) fn discrete_fourier_u64(sample: &Sample) -> TestResult {
         }
     }
     // 0 < tail_length <= 64
-    let tail_length = 64 - (64 - sample.len() % 64) % 64;
+    let tail_length = sample.tail_length();
     let x = sample.b64[sample.b64.len() - 1] >> (64 - tail_length);
 
     for i in (0..tail_length).rev() {

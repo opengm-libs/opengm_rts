@@ -43,16 +43,35 @@ pub(crate) fn poker_u8(sample: &Sample, m: i32) -> TestResult {
 
     let m = m as usize;
     let n = sample.bit_length / m;
+    let b64 = &sample.b64;
     let power: usize = 1 << m;
     let mut ni = vec![0; power];
+
     if m == 4 {
-        for b in &sample.b {
-            ni[(*b >> 4) as usize] += 1;
-            ni[(*b & 0x0f) as usize] += 1;
+        for b in &b64[..b64.len()-1] {
+            for i in 0..16{
+                ni[((*b >> 4*i) & 0x0f) as usize] += 1;
+            }
+        }
+        let mut tail_length = sample.tail_length();
+        let mut tail = sample.tail_aligned_right();
+        while  tail_length > 0 {
+            ni[(tail & 0x0f) as usize] += 1;
+            tail >>= 4;
+            tail_length -= 4;
         }
     } else {
-        for b in &sample.b {
-            ni[*b as usize] += 1;
+        for b in &b64[..b64.len()-1] {
+            for i in 0..8{
+                ni[((*b >> 8*i) & 0xff) as usize] += 1;
+            }
+        }
+        let mut tail_length = sample.tail_length();
+        let mut tail = sample.tail_aligned_right();
+        while  tail_length > 0 {
+            ni[(tail & 0xff) as usize] += 1;
+            tail >>= 8;
+            tail_length -= 8;
         }
     }
 

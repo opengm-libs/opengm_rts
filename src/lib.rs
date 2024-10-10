@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
-#![cfg_attr(test,feature(test))]
+#![feature(test)]
 
 mod tester;
 mod testsuits;
@@ -56,7 +56,7 @@ const MAX_OVERLAPPING_PATTERN: usize = 7;
 pub struct Sample {
     // Note: for a byte x, bit 0 is (x>>7) & 1 and bit 7 is x & 1.
     // Note: for a u64 x, bit 0 is (x>>63) & 1 and bit 63 is x & 1.
-    b: Vec<u8>,
+    // b: Vec<u8>,
     b64: Vec<u64>,
     bit_length: usize,
 
@@ -68,7 +68,6 @@ pub struct Sample {
 
     // 重叠子序列和近似熵
     patterns: Mutex<Vec<Option<Vec<u64>>>>,
-    max_patterns: usize,
 }
 
 fn combine(b: &[u8]) -> Vec<u64> {
@@ -112,14 +111,13 @@ impl From<&str> for Sample {
         let b64 = combine(&b);
         let pop = popcount(&b);
         Sample {
-            b: b,
+            // b: b,
             b64: b64,
             #[cfg(test)]
             e: e,
             bit_length: bit_string.len(),
             pop: pop,
             patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN+1]),
-            max_patterns: MAX_OVERLAPPING_PATTERN,
         }
     }
 }
@@ -138,14 +136,13 @@ impl From<&[u8]> for Sample {
         let b64 = combine(&byte_slice);
         let pop = popcount(&byte_slice);
         Sample {
-            b: byte_slice.to_vec(),
+            // b: byte_slice.to_vec(),
             b64,
             bit_length: byte_slice.len() * 8,
             #[cfg(test)]
             e,
             pop: pop,
             patterns:Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN+1]),
-            max_patterns: MAX_OVERLAPPING_PATTERN,
         }
     }
 }
@@ -168,6 +165,17 @@ impl Sample {
     /// returns the number of bits of sample.
     pub fn len(&self) -> usize {
         self.bit_length
+    }
+
+    // return the last valid bits in self.b64[self.b64.len()-1];
+    pub(crate) fn tail_length(&self) -> usize {
+        64 - (64 - self.len() % 64) % 64
+    }
+
+    // return self.b64[self.b64.len()-1] aligned right.
+    // i.e., the last bit is the return u64 & 1.
+    pub(crate) fn tail_aligned_right(&self) -> u64{
+        self.b64[self.b64.len() - 1] >> (64 - self.tail_length())
     }
 
     pub fn frequency(&self) -> TestResult {
@@ -420,8 +428,8 @@ pub mod tests {
             // 0.02 s
             // pv.insert(TestFuncs::Runs, sample.runs());
 
-            // 4.21 s - TODO
-            // pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
+            // 4.21 s - 0.98 s
+            pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
 
             // 0.96s - TODO
             // pv.insert(TestFuncs::LongestRun0, sample.longest_run0());
@@ -465,7 +473,7 @@ pub mod tests {
             // pv.insert(TestFuncs::Universal, sample.universal());
 
             // 27s
-            pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
+            // pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
         }
         println!("total: {:.2} s", (Instant::now() - start).as_secs_f64());
     }

@@ -184,8 +184,9 @@ mod tests {
             samples.push(Sample::from(data.as_slice()));
         }
         let start = Instant::now();
-        println!("{:#?}", randomness_test(&samples, &testers));
+        let result = randomness_test(&samples, &testers);
         let elapsed = Instant::now() - start;
+        println!("{:?}",result);
         println!("Used time: {} s", elapsed.as_secs_f64())
     }
 
