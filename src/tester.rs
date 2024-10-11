@@ -1,3 +1,4 @@
+use rand::{thread_rng, RngCore};
 // Commbined test suites
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -189,10 +190,7 @@ pub fn get_testers(funcs: &[TestFuncs], bits: usize) -> Vec<Tester> {
     for f in funcs {
         if let Some(params) = get_param(*f, bits) {
             for param in params {
-                res.push(Tester {
-                    f: *f,
-                    param: Some(param),
-                });
+                res.push(Tester { f: *f, param: Some(param) });
             }
         } else {
             res.push(Tester { f: *f, param: None });
@@ -206,11 +204,21 @@ pub fn waterline(alpha: f64, s: usize) -> usize {
     (s * (1.0 - alpha - 3.0 * (alpha * (1.0 - alpha) / s).sqrt())).ceil() as usize
 }
 
+
 fn sample_test(s: &Sample, testers: &[Tester]) -> HashMap<Tester, TestResult> {
     let mut result = HashMap::<Tester, TestResult>::new();
-    for t in testers {
-        result.insert(*t, t.test(s));
+
+    let reverse = if USE_U8 { (s.b[0] & 1) == 0 } else { (s.b64[0] & 1) == 0 };
+    if reverse{
+        for t in testers.iter().rev() {
+            result.insert(*t, t.test(s));
+        }
+    }else{
+        for t in testers {
+            result.insert(*t, t.test(s));
+        }
     }
+    
     return result;
 }
 
@@ -218,10 +226,7 @@ fn sample_test(s: &Sample, testers: &[Tester]) -> HashMap<Tester, TestResult> {
 // p_value result returns [samples[0].Result, samples[1].Result,...]
 // samples[i].Result: Tester: TestResult.
 // q_value result returns hashmap: Tester: q_value distribution.
-pub fn randomness_test(
-    samples: &Vec<Sample>,
-    testers: &[Tester],
-) -> (Vec<HashMap<Tester, TestResult>>, HashMap<Tester, f64>) {
+pub fn randomness_test(samples: &Vec<Sample>, testers: &[Tester]) -> (Vec<HashMap<Tester, TestResult>>, HashMap<Tester, f64>) {
     if samples.len() == 0 || testers.len() == 0 {
         return (Vec::<HashMap<Tester, TestResult>>::new(), HashMap::new());
     }
@@ -240,9 +245,7 @@ pub fn randomness_test(
 
 // let line = waterline(ALPHA, samples.len());
 pub fn count_pvalue_pass(res: &Vec<HashMap<Tester, TestResult>>, f: Tester, alpha: f64) -> i32 {
-    res.iter()
-        .map(|t| if t[&f].pass(alpha) { 1 } else { 0 })
-        .sum()
+    res.iter().map(|t| if t[&f].pass(alpha) { 1 } else { 0 }).sum()
 }
 
 fn compute_qvalue_distribution(res: &Vec<HashMap<Tester, TestResult>>, f: Tester) -> f64 {
@@ -294,7 +297,7 @@ mod tests {
             samples.push(Sample::from(data.as_slice()));
         }
         let start = Instant::now();
-        println!("{:?}", randomness_test(&samples, &testers));
+        randomness_test(&samples, &testers);
         let elapsed = Instant::now() - start;
         println!("Used time: {} s", elapsed.as_secs_f64())
     }

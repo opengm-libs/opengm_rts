@@ -1,14 +1,22 @@
-use super::util::*;
-use crate::{get_bit_unchecked, Sample, TestResult};
+use super::{util::*, super::USE_U8};
+use crate::{get_bit_unchecked_u64, Sample, TestResult};
 
 /// 块内最大0游程检测
 pub(crate) fn longest_run0(sample: &Sample) -> TestResult {
-    longest_run0_u64(sample)
+    if USE_U8{
+        longest_run0_u8(sample)
+    }else{
+        longest_run0_u64(sample)
+    }
 }
 
 /// 块内最大0游程检测
 pub(crate) fn longest_run1(sample: &Sample) -> TestResult {
-    longest_run1_u64(sample)
+    if USE_U8{
+        longest_run1_u8(sample)
+    }else{
+        longest_run1_u64(sample)
+    }
 }
 
 
@@ -142,7 +150,6 @@ pub(crate) fn longest_run1_epsilon(sample: &Sample) -> TestResult {
 ////////////////////////////////////////////////////////////////////////
 
 
-
 #[inline(always)]
 fn longest_run_internal_u64<const BIT: u8>(b64: &[u64], n:usize, K: i32, M: i32, V: &[i32], pi: &[f64]) -> f64 {
     let N = n / (M as usize);
@@ -153,7 +160,7 @@ fn longest_run_internal_u64<const BIT: u8>(b64: &[u64], n:usize, K: i32, M: i32,
         let mut longestRun = 0;
         let mut currentRun = 0;
         for j in 0..(M as usize) {
-            if get_bit_unchecked(b64, block_start + j) == BIT {
+            if get_bit_unchecked_u64(b64, block_start + j) == BIT {
                 currentRun += 1;
                 if longestRun < currentRun {
                     longestRun = currentRun;
@@ -208,6 +215,81 @@ pub(crate) fn longest_run1_u64(sample: &Sample) -> TestResult {
 }
 
 
+////////////////////////////////////////////////////////////////////////
+#[inline(always)]
+fn longest_run_slice_u8<const BIT: u8>(b8:&[u8])-> i32{
+    let mut longestRun = 0;
+    let mut currentRun = 0;
+    for b in b8 {
+        for i in (0..8).rev(){
+            if (*b >> i) & 1 == BIT {
+                currentRun += 1;
+                if longestRun < currentRun {
+                    longestRun = currentRun;
+                }
+            } else {
+                currentRun = 0;
+            }
+        }
+    }
+    longestRun
+}
+
+#[inline(always)]
+fn longest_run_internal_u8<const BIT: u8>(b8: &[u8], n:usize, K: i32, M: i32, V: &[i32], pi: &[f64]) -> f64 {
+    let M = M as usize;
+    let N = n / M;
+    let mut nu = [0; 7]; // K at most 6
+
+    for i in 0..N {
+        let start = i * M / 8;
+        let end = (i+1) * M / 8;
+        let longestRun: i32 = longest_run_slice_u8::<BIT>(&b8[start..end]);
+        nu[(saturating(longestRun, V[0], V[K as usize]) - V[0]) as usize] += 1;
+    }
+
+    let mut chi2 = 0.0;
+    for i in 0..(K + 1) {
+        let N = N as f64;
+        let nui = nu[i as usize] as f64;
+        let pii = pi[i as usize];
+        chi2 += (nui - N * pii) * (nui - N * pii) / (N * pii);
+    }
+    igamc(K as f64 / 2.0, chi2 / 2.0)
+}
+
+/// 块内最大0游程检测
+pub(crate) fn longest_run0_u8(sample: &Sample) -> TestResult {
+    if sample.len() < 128 {
+        panic!("longest run test: n too short, at least 128\n");
+    }
+
+    let (K, M, V, pi) = get_params(sample.len());
+
+    let pv = longest_run_internal_u8::<0>(&sample.b, sample.bit_length, K, M, &V, &pi);
+
+    TestResult {
+        pv,
+        qv: pv,
+    }
+}
+
+/// 块内最大0游程检测
+pub(crate) fn longest_run1_u8(sample: &Sample) -> TestResult {
+    if sample.len() < 128 {
+        panic!("longest run test: n too short, at least 128\n");
+    }
+
+    let (K, M, V, pi) = get_params(sample.len());
+
+    let pv = longest_run_internal_u8::<1>(&sample.b, sample.bit_length, K, M, &V, &pi);
+
+    TestResult {
+        pv,
+        qv: pv,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{*, super::tests::*};
@@ -232,11 +314,13 @@ mod tests {
         let sample: Sample = E.into();
         assert_eq!(tv.1, longest_run0_epsilon(&sample));
         assert_eq!(tv.1, longest_run0_u64(&sample));
+        assert_eq!(tv.1, longest_run0_u8(&sample));
 
         let tv = get_test_vec_e(crate::TestFuncs::LongestRun1);
         let sample: Sample = E.into();
         assert_eq!(tv.1, longest_run1_epsilon(&sample));
         assert_eq!(tv.1, longest_run1_u64(&sample));
+        assert_eq!(tv.1, longest_run1_u8(&sample));
     }
 
     #[test]
@@ -245,6 +329,9 @@ mod tests {
             let sample: Sample = E[..nbits * 8].into();
             assert_eq!(longest_run0_epsilon(&sample), longest_run0_u64(&sample));
             assert_eq!(longest_run1_epsilon(&sample), longest_run1_u64(&sample));
+
+            assert_eq!(longest_run0_epsilon(&sample), longest_run0_u8(&sample));
+            assert_eq!(longest_run1_epsilon(&sample), longest_run1_u8(&sample));
         }
     }
 }

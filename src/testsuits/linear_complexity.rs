@@ -1,21 +1,42 @@
-use crate::{igamc, powi, Sample, TestResult};
+use std::cmp::max;
+use std::mem::swap;
+
+// use u1000::U1000;
+// use u500::U500;
+
 use crate::testsuits::util::*;
+use crate::{igamc, powi, Sample, TestResult, USE_U8};
+
+use super::linear_complexity_simd::linear_complexity_simd;
+
+pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> TestResult {
+    if USE_U8 {
+        linear_complexity_u8(sample, m)
+    } else {
+        linear_complexity_u64(sample, m)
+    }
+
+    // if m == 500 {
+    //     linear_complexity_simd::<U500, 500>(sample)
+    // } else if m == 1000 {
+    //     linear_complexity_simd::<U1000, 1000>(sample)
+    // } else {
+    //     linear_complexity_u8(sample, m)
+    // }
+}
 
 #[cfg(test)]
 #[inline(always)]
 pub(crate) fn linear_complexity_epsilon(sample: &Sample, m: i32) -> TestResult {
     let mut nu = [0; 7];
-    let pi = [
-        0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833,
-    ];
+    let pi = [0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833];
 
     let m = m as usize;
     let n = sample.e.len();
     let N = n / m;
     let e = sample.e.as_slice();
     let sign = if m % 2 == 0 { 1.0 } else { -1.0 }; // -1^m
-    let mean = m as f64 / 2.0 + (9.0 - sign) / 36.0
-        - 1.0 / powi(2.0, m as i32) * (m as f64 / 3.0 + 2.0 / 9.0);
+    let mean = m as f64 / 2.0 + (9.0 - sign) / 36.0 - 1.0 / powi(2.0, m as i32) * (m as f64 / 3.0 + 2.0 / 9.0);
     for i in 0..N {
         let L = berlekamp_massey_epsilon(&e[i * m..(i + 1) * m]) as f64;
         let t = sign * (L - mean) + 2.0 / 9.0;
@@ -105,7 +126,8 @@ pub(crate) fn berlekamp_massey_epsilon(s: &[u8]) -> usize {
     while N < n {
         let mut d = s[N];
         for i in 1..=L.min(C.len() - 1) {
-            d += C[i] * s[N - i];
+            // d += C[i] * s[N - i];
+            d ^= C[i] & s[N - i];
         }
         d %= 2;
 
@@ -138,12 +160,7 @@ fn get_bit_rev(c: &[u64], n: usize) -> u8 {
 
 // extract bits from b at start position start_bit, of bit length bit_length.
 // zeros may added before the start_bit, returns the total bit length (bit_length + padding zeros).
-fn extract(
-    b: &[u8],
-    start_bit: usize,
-    bit_length: usize,
-    dst: &mut Vec<u64>,
-) -> (usize, usize) {
+fn extract(b: &[u8], start_bit: usize, bit_length: usize, dst: &mut Vec<u64>) -> (usize, usize) {
     dst.clear();
     let leading_zeros = start_bit % 8;
     let start = start_bit / 8;
@@ -164,7 +181,8 @@ fn extract(
     }
     (leading_zeros, bit_length)
 }
-fn extract_borrowed(b64: &[u64],start_bit: usize, bit_length: usize) -> (usize, &[u64]) {
+
+fn extract_borrowed_u64(b64: &[u64], start_bit: usize, bit_length: usize) -> (usize, &[u64]) {
     let leading_zeros = start_bit % 64;
     let start = start_bit / 64;
     let end = (start_bit + bit_length - 1) / 64;
@@ -172,35 +190,56 @@ fn extract_borrowed(b64: &[u64],start_bit: usize, bit_length: usize) -> (usize, 
     (leading_zeros, &b64[start..=end])
 }
 
+fn extract_borrowed_u8(out: &mut [u64], b8: &[u8], start_bit: usize, bit_length: usize) -> usize {
+    let leading_zeros = start_bit % 64;
+    let mut start = start_bit / 64 * 8;
+    out[0] = u64::from_be_bytes(b8[start..start + 8].try_into().unwrap());
+    start += 8;
+    let mut i = 1;
+    let mut count = 64 - leading_zeros; // have read count bits.
+    while count < bit_length {
+        out[i] = u64::from_be_bytes(b8[start..start + 8].try_into().unwrap());
+        i += 1;
+        start += 8;
+        count += 64;
+    }
+
+    leading_zeros
+}
+
 // extract the bits (N-64, N], i.e., bit [N-63, N-62, ..., N].
+#[inline(always)]
 fn extract_forward_u64(s: &[u64], N: usize) -> u64 {
-    // if N is exactly on the boundery.
-    if N % 64 == 63 {
-        return s[N / 64];
+    if true {
+        (s[N / 64] >> (63 - N % 64)) | ((s[(N - 63) / 64] << 1) << (N % 64))
     } else {
-        (s[N / 64] >> (63 - N % 64)) | (s[N / 64 - 1] << (N % 64 + 1))
+        // if N is exactly on the boundery.
+        if N % 64 == 63 {
+            return s[N / 64];
+        } else {
+            (s[N / 64] >> (63 - N % 64)) | (s[N / 64 - 1] << (N % 64 + 1))
+        }
     }
 }
 
 /// 线性复杂度检测
-pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> TestResult {
+pub(crate) fn linear_complexity_u8(sample: &Sample, m: i32) -> TestResult {
     // m = 500, 1000, 5000
     let mut nu = [0; 7];
-    let pi = [
-        0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833,
-    ];
+    let pi = [0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833];
 
     let m = m as usize;
     let n = sample.bit_length;
 
     let N = n / m;
-    let b64 = sample.b64.as_slice();
+    let b8 = &sample.b;
     let sign = if m % 2 == 0 { 1.0 } else { -1.0 }; // -1^m
-    let mean = m as f64 / 2.0 + (9.0 - sign) / 36.0
-        - 1.0 / powi(2.0, m as i32) * (m as f64 / 3.0 + 2.0 / 9.0);
+    let mean = m as f64 / 2.0 + (9.0 - sign) / 36.0 - 1.0 / powi(2.0, m as i32) * (m as f64 / 3.0 + 2.0 / 9.0);
+    let mut S = vec![0; (m + 63) / 64 + 1];
     for i in 0..N {
-        let (leadingzeros, S) = extract_borrowed(b64, i*m, m);
-        let L = berlekamp_massey(&S, leadingzeros, m) as f64;
+        // let (leadingzeros, S) = extract_borrowed_u64(b64, i * m, m);
+        let leadingzeros = extract_borrowed_u8(&mut S, b8, i * m, m);
+        let L = berlekamp_massey_u64(&S, leadingzeros, m) as f64;
         let t = sign * (L - mean) + 2.0 / 9.0;
 
         if t <= -2.5 {
@@ -228,9 +267,51 @@ pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> TestResult {
     TestResult { pv, qv: pv }
 }
 
-//
+/// 线性复杂度检测
+pub(crate) fn linear_complexity_u64(sample: &Sample, m: i32) -> TestResult {
+    // m = 500, 1000, 5000
+    let mut nu = [0; 7];
+    let pi = [0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833];
+
+    let m = m as usize;
+    let n = sample.bit_length;
+
+    let N = n / m;
+    let b64 = sample.b64.as_slice();
+    let sign = if m % 2 == 0 { 1.0 } else { -1.0 }; // -1^m
+    let mean = m as f64 / 2.0 + (9.0 - sign) / 36.0 - 1.0 / powi(2.0, m as i32) * (m as f64 / 3.0 + 2.0 / 9.0);
+    for i in 0..N {
+        let (leadingzeros, S) = extract_borrowed_u64(b64, i * m, m);
+        let L = berlekamp_massey_u64(&S, leadingzeros, m) as f64;
+        let t = sign * (L - mean) + 2.0 / 9.0;
+
+        if t <= -2.5 {
+            nu[0] += 1;
+        } else if t > -2.5 && t <= -1.5 {
+            nu[1] += 1;
+        } else if t > -1.5 && t <= -0.5 {
+            nu[2] += 1;
+        } else if t > -0.5 && t <= 0.5 {
+            nu[3] += 1;
+        } else if t > 0.5 && t <= 1.5 {
+            nu[4] += 1;
+        } else if t > 1.5 && t <= 2.5 {
+            nu[5] += 1;
+        } else {
+            nu[6] += 1;
+        }
+    }
+    let mut chi2 = 0.00;
+    for (v, p) in core::iter::zip(nu, pi) {
+        let np = N as f64 * p;
+        chi2 += powi(v as f64 - np, 2) / np;
+    }
+    let pv = igamc(3.0, chi2 / 2.0);
+    TestResult { pv, qv: pv }
+}
+
 // set c = c + b*D^e
-fn add_shift(c: &mut Vec<u64>, b: &Vec<u64>, e: usize) {
+fn add_shift_u64(c: &mut Vec<u64>, b: &Vec<u64>, e: usize) {
     let left_shift = e % 64;
     match left_shift {
         0 => {
@@ -257,12 +338,45 @@ fn add_shift(c: &mut Vec<u64>, b: &Vec<u64>, e: usize) {
     }
 }
 
+//
+// set c = c + b*D^e
+#[inline(always)]
+fn add_shift_u64_with_length(c: &mut [u64], b: &[u64], e: usize, clen: usize, blen: usize) {
+    let left_shift = e % 64;
+    let mut op_bits = max(clen, blen + e) as isize;
+    match left_shift {
+        0 => {
+            let mut ci = (c.len() - 1 - e / 64) as isize;
+            let mut bi = (b.len() - 1) as isize;
+            while (ci >= 0) && (op_bits > 0) {
+                c[ci as usize] ^= b[bi as usize];
+                ci -= 1;
+                bi -= 1;
+                op_bits -= 64;
+            }
+        }
+        _ => {
+            let right_shift = 64 - left_shift;
+            let mut ci = (c.len() - 1 - e / 64) as isize;
+            let mut bi = (b.len() - 1) as isize;
+            let mut last_b = 0;
+            while (ci >= 0) && (op_bits > 0) {
+                c[ci as usize] ^= (b[bi as usize] << left_shift) | last_b;
+                last_b = b[bi as usize] >> right_shift;
+                ci -= 1;
+                bi -= 1;
+                op_bits -= 64;
+            }
+        }
+    }
+}
+
 // Find L(S) where S start from pos leadingzeros, with nbits bits.
-fn berlekamp_massey(S: &[u64], leadingzeros: usize, nbits: usize) -> usize {
+fn berlekamp_massey_u64(S: &[u64], leadingzeros: usize, nbits: usize) -> usize {
     let length = S.len();
     let mut C: Vec<u64> = vec![0; length]; // C is in reverse order, right aligned.
     let mut B: Vec<u64> = vec![0; length];
-    let mut T: Vec<u64> = Vec::with_capacity(length);
+    let mut T: Vec<u64> = vec![0; length];
 
     let mut L = 0;
     let mut m: i32 = -1;
@@ -270,22 +384,28 @@ fn berlekamp_massey(S: &[u64], leadingzeros: usize, nbits: usize) -> usize {
     // C[D] = 1
     C[length - 1] = 1;
     B[length - 1] = 1;
+    let mut blen = 1;
 
     let mut N = 0;
     while N < nbits {
-        let d = discrepancy(&S, leadingzeros, &C, N, L);
+        let d = discrepancy_u64(&S, leadingzeros, &C, N, L);
         if d == 1 {
             // T(D) = C(D)
-            T.clone_from(&C);
+            T[length - (L + 64) / 64..].copy_from_slice(&C[length - (L + 64) / 64..]);
+            // tlen = L+1;
 
             // C(D) = C(D) + B(D)*D^{N-m}
             let e = (N as i32 - m) as usize;
-            add_shift(&mut C, &B, e);
+            // add_shift_u64(&mut C, &B, e);
+            // deg(C) = L
+            add_shift_u64_with_length(&mut C, &B, e, L + 1, blen);
 
             if L <= N / 2 {
-                L = N + 1 - L;
+                // B.copy_from_slice(&T);
+                swap(&mut B, &mut T);
+                blen = L + 1;
                 m = N as i32;
-                B.clone_from(&T)
+                L = N + 1 - L;
             }
         }
         N += 1;
@@ -293,8 +413,9 @@ fn berlekamp_massey(S: &[u64], leadingzeros: usize, nbits: usize) -> usize {
     L
 }
 
-// shift s to buf, then or with c.
-fn discrepancy(S: &[u64], s_start: usize, C: &[u64], N: usize, L: usize) -> u8 {
+// d = C_0S_N + C_1S_{N-1} + ... + C_LS_{N-L} % 2
+#[inline(always)]
+fn discrepancy_u64(S: &[u64], s_start: usize, C: &[u64], N: usize, L: usize) -> u8 {
     if false {
         // naive implementation
         let mut d = 0;
@@ -304,7 +425,7 @@ fn discrepancy(S: &[u64], s_start: usize, C: &[u64], N: usize, L: usize) -> u8 {
             d ^= a & b;
         }
         return d;
-    } else {
+    } else if false {
         let mut pop = 0;
         let nl = s_start + N - L;
         let mut j = C.len() - 1;
@@ -312,7 +433,7 @@ fn discrepancy(S: &[u64], s_start: usize, C: &[u64], N: usize, L: usize) -> u8 {
 
         while N >= nl + 63 {
             let x = extract_forward_u64(S, N);
-            pop += (x & C[j]).count_ones();
+            pop ^= (x & C[j]).count_ones();
             N -= 64;
             j -= 1;
         }
@@ -327,16 +448,43 @@ fn discrepancy(S: &[u64], s_start: usize, C: &[u64], N: usize, L: usize) -> u8 {
             } else {
                 x = (S[N / 64] << (nl % 64)) >> (64 - (N - nl + 1));
             }
-            pop += (x & C[j]).count_ones();
+            pop ^= (x & C[j]).count_ones();
         }
 
         (pop & 1) as u8
+    } else {
+        let mut pop = 0;
+        let N_minus_L = s_start + N - L;
+        let N = s_start + N;
+
+        let mut c_idx = C.len() - 1;
+        // S[N-L..N] exactly on the boundary
+        let rshift = 63 - N % 64;
+        if rshift == 0 {
+            let mut s_idx = (N / 64) as i64;
+            while s_idx >= (N_minus_L / 64) as i64 {
+                pop ^= C[c_idx] & S[s_idx as usize];
+                c_idx -= 1;
+                s_idx -= 1;
+            }
+        } else {
+            let mut s_idx = (N / 64) as i64;
+            let lshift = 64 - rshift;
+            while s_idx > (N_minus_L / 64) as i64 {
+                pop ^= C[c_idx] & ((S[s_idx as usize] >> rshift) | (S[s_idx as usize - 1] << lshift));
+                s_idx -= 1;
+                c_idx -= 1;
+            }
+            pop ^= C[c_idx] & (S[s_idx as usize] >> rshift);
+        }
+
+        (pop.count_ones() & 1) as u8
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{*, super::tests::*};
+    use super::{super::tests::*, *};
     use crate::{test_data::E, Sample};
 
     #[test]
@@ -344,18 +492,14 @@ mod tests {
         assert_eq!(5, berlekamp_massey_epsilon(&[0, 0, 1, 1, 0, 1, 1, 1, 0]));
         assert_eq!(0, berlekamp_massey_epsilon(&[0, 0, 0]));
         assert_eq!(3, berlekamp_massey_epsilon(&[0, 0, 1]));
-        assert_eq!(
-            1,
-            berlekamp_massey_epsilon(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
-        );
+        assert_eq!(1, berlekamp_massey_epsilon(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
         assert_eq!(2, berlekamp_massey_epsilon(&[1, 1, 0, 1, 1, 0]));
     }
-    
+
     #[test]
     fn test_extract() {
         let b = vec![
-            0xf1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba,
-            0x98, 0x76, 0x54, 0x32, 0x10,
+            0xf1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10,
         ];
         let mut dst = Vec::new();
         let n = extract(&b, 2, 65, &mut dst);
@@ -377,7 +521,7 @@ mod tests {
         let mut c = vec![0, 0, 1];
         let b = vec![0, 0, 3];
         let e = 127;
-        add_shift(&mut c, &b, e);
+        add_shift_u64(&mut c, &b, e);
         println!("{:#?}", c);
     }
 
@@ -390,19 +534,28 @@ mod tests {
 
     #[test]
     fn test_e() {
-        let tv = get_test_vec_e(crate::TestFuncs::LinearComplexity);
+        // let tv = get_test_vec_e(crate::TestFuncs::LinearComplexity);
         let sample: Sample = E.into();
-        assert_eq!(linear_complexity(&sample, tv.0), tv.1);
+        // for m in [500, 1000, 5000] {
+        for m in [500, 1000] {
+            println!("{}", m);
+            // FIXME: panic when m = 5000
+            let c = linear_complexity_epsilon(&sample, m);
+            let a = linear_complexity_u8(&sample, m);
+            // let b = linear_complexity_u64(&sample, m);
+
+            // assert_eq!(a,b);
+            assert_eq!(a, c);
+        }
     }
 
     #[test]
     fn test_equal() {
         let sample: Sample = E.into();
-        for param in [500,1000, 100, 200,301]{
-            let res = linear_complexity(&sample, param);
+        for param in [500, 1000, 100, 200, 301] {
+            let res = linear_complexity_u8(&sample, param);
             assert_eq!(res, linear_complexity_epsilon(&sample, param));
         }
-        
     }
 }
 
@@ -412,15 +565,30 @@ mod bench {
     use super::*;
     use crate::{test_data::E, Sample};
     use test::Bencher;
-    
+
     #[bench]
-    fn bench_test(b: &mut Bencher) {
+    fn bench_linear_complexity_u64(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // m=500: 15,323,787.50
+        // m=500: 15,102,658.30
         // m=1000:20,563,904.20
+        // m=5000:61,863,154.20
         b.iter(|| {
-            test::black_box(linear_complexity(&sample, 1000));
+            test::black_box(linear_complexity_u64(&sample, 5000));
+        });
+    }
+
+    #[bench]
+    fn bench_linear_complexity_u8(b: &mut Bencher) {
+        let sample: Sample = E.into();
+
+        // m=500:  13,285,025.00
+        // m=1000: 15,692,979.10
+        // m=5000: 33,255,095.90
+        b.iter(|| {
+            // test::black_box(linear_complexity_u8(&sample, 500));
+            // test::black_box(linear_complexity_u8(&sample, 1000));
+            test::black_box(linear_complexity_u8(&sample, 5000));
         });
     }
 

@@ -1,32 +1,47 @@
-use super::util::*;
+use std::sync::Arc;
+
+use super::{util::*, super::USE_U8};
 use crate::{Sample, TestResult};
 
+use realfft::{RealFftPlanner, RealToComplex};
 use rustfft::{
-    num_complex::{Complex, ComplexFloat},
-    FftPlanner,
+    num_complex::{Complex, Complex32, Complex64, ComplexFloat},
+    Fft, FftPlanner,
 };
+
+use std::sync::{LazyLock, Mutex};
+static FFT_PLANNER: LazyLock<Mutex<RealFftPlanner<f32>>> =
+    LazyLock::new(|| Mutex::new(RealFftPlanner::new()));
+fn get_fft(n: usize) -> Arc<dyn RealToComplex<f32>> {
+    FFT_PLANNER.lock().unwrap().plan_fft_forward(n)
+}
 
 /// 离散傅里叶检测
 pub(crate) fn discrete_fourier(sample: &Sample) -> TestResult {
-    discrete_fourier_u64(sample)
+    if USE_U8 {
+        discrete_fourier_u8(sample)
+    } else {
+        discrete_fourier_u64(sample)
+    }
 }
-
 
 #[cfg(test)]
 pub(crate) fn discrete_fourier_epsilon(sample: &Sample) -> TestResult {
+    use rustfft::num_complex::Complex64;
+
     let e = &sample.e;
     let n = e.len();
-    let fft = FftPlanner::<f64>::new().plan_fft_forward(n);
     let mut f = Vec::with_capacity(n);
 
+    // use complex to complex fft.
     for i in 0..n {
-        f.push(Complex {
+        f.push(Complex64{
             re: 2.0 * e[i] as f64 - 1.0,
             im: 0.0,
         });
     }
-    fft.process(&mut f);
 
+    rustfft::FftPlanner::new().plan_fft_forward(f.len()).process(&mut f);
     let t = sqrt(2.995732274 * n as f64);
     let n0 = 0.95 * n as f64 / 2.0;
     let n1 = f[0..=(n / 2 - 1)]
@@ -41,38 +56,32 @@ pub(crate) fn discrete_fourier_epsilon(sample: &Sample) -> TestResult {
     TestResult { pv, qv }
 }
 
-
-#[inline(always)]
-fn fft(f: &mut [Complex<f64>]){
-    FftPlanner::<f64>::new().plan_fft_forward(f.len()).process(f);
-}
-
-
 /// 离散傅里叶检测
-pub(crate) fn discrete_fourier_u64(sample: &Sample) -> TestResult {
+pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
     let n = sample.len();
-    let mut f = Vec::with_capacity(n);
-    for b in sample.b64[..sample.b64.len() - 1].iter() {
-        let x = *b;
+    let mut e = Vec::with_capacity(n);
+    let b8 = &sample.b;
+    let full_chunks = b8.len() & (!7);
+    for chunk in b8[..full_chunks].chunks_exact(8) {
+        let x = u64::from_be_bytes(chunk.try_into().unwrap());
+
+        // use real to complex fft.
         for i in (0..64).rev() {
-            f.push(Complex {
-                re: ((x >> i) & 1) as f64,
-                im: 0.0,
-            });
+            e.push(((x >> i) & 1) as f32);
         }
     }
-    // 0 < tail_length <= 64
-    let tail_length = sample.tail_length();
-    let x = sample.b64[sample.b64.len() - 1] >> (64 - tail_length);
-
-    for i in (0..tail_length).rev() {
-        f.push(Complex {
-            re: ((x >> i) & 1) as f64,
-            im: 0.0,
-        });
+    if full_chunks < b8.len() {
+        let tail = u64_from_be_slice(&b8[full_chunks..]);
+        let tail_bits = (b8.len() & 7) * 8;
+        for i in 0..tail_bits {
+            e.push(((tail >> (63 - i)) & 1) as f32);
+        }
     }
 
-    fft(&mut f);
+    // get_fft(f.len()).process(&mut f);
+    let mut f = vec![Complex32::default(); n/2+1];
+    // SAFTY: process returns error only if e and f have wrong length.
+    get_fft(e.len()).process(&mut e, &mut f).unwrap();
 
     let t = sqrt(2.995732274 * n as f64);
     let n0 = 0.95 * n as f64 / 2.0;
@@ -84,7 +93,50 @@ pub(crate) fn discrete_fourier_u64(sample: &Sample) -> TestResult {
     };
     n1 += f[1..=(n / 2 - 1)]
         .iter()
-        .map(|x| if x.abs() < t / 2.0 { 1 } else { 0 })
+        .map(|x| if (x.abs() as f64) < t / 2.0 { 1 } else { 0 })
+        .sum::<i64>();
+
+    let d = (n1 as f64 - n0) / sqrt(n as f64 * 0.95 * 0.05 / 3.8);
+    let pv = erfc(abs(d) / sqrt(2.0));
+    let qv = erfc(d / sqrt(2.0)) / 2.0;
+
+    TestResult { pv, qv }
+}
+
+/// 离散傅里叶检测
+pub(crate) fn discrete_fourier_u64(sample: &Sample) -> TestResult {
+    let n = sample.len();
+    let mut e = Vec::with_capacity(n);
+    for b in sample.b64[..sample.b64.len() - 1].iter() {
+        let x = *b;
+        for i in (0..64).rev() {
+            e.push(((x >> i) & 1) as f32);
+        }
+    }
+    // 0 < tail_length <= 64
+    let tail_length = sample.tail_length();
+    let x = sample.b64[sample.b64.len() - 1] >> (64 - tail_length);
+
+    for i in (0..tail_length).rev() {
+        e.push(((x >> i) & 1) as f32);
+    }
+
+    // get_fft(f.len()).process(&mut f);
+    let mut f = vec![Complex32::default(); n/2+1];
+    // SAFTY: process returns error only if e and f have wrong length.
+    get_fft(e.len()).process(&mut e, &mut f).unwrap();
+
+    let t = sqrt(2.995732274 * n as f64);
+    let n0 = 0.95 * n as f64 / 2.0;
+    // f0 = sum(x_k) = 2*pop - n
+    let mut n1 = if ((2 * sample.pop as i64 - n as i64).abs() as f64) < t {
+        1
+    } else {
+        0
+    };
+    n1 += f[1..=(n / 2 - 1)]
+        .iter()
+        .map(|x| if (x.abs() as f64) < t / 2.0 { 1 } else { 0 })
         .sum::<i64>();
 
     let d = (n1 as f64 - n0) / sqrt(n as f64 * 0.95 * 0.05 / 3.8);
@@ -113,14 +165,19 @@ mod tests {
         let sample: Sample = E.into();
         assert_eq!(tv.1, discrete_fourier_epsilon(&sample));
         assert_eq!(tv.1, discrete_fourier_u64(&sample));
+        assert_eq!(tv.1, discrete_fourier_u8(&sample));
     }
 
     #[test]
     fn test_equal() {
-        for nbits in 128 / 8..1000 {
+        for nbits in 18..1000 {
             let sample: Sample = E[..nbits * 8].into();
             assert_eq!(
                 discrete_fourier_epsilon(&sample),
+                discrete_fourier_u64(&sample)
+            );
+            assert_eq!(
+                discrete_fourier_u8(&sample),
                 discrete_fourier_u64(&sample)
             );
         }
@@ -137,42 +194,51 @@ mod bench {
     const K: i32 = 3;
 
     #[bench]
-    fn bench_test(b: &mut Bencher) {
+    fn bench_test_epsilon(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // 30,424,179.20 ns/iter
+        // 23,200,620.80
         b.iter(|| {
             test::black_box(discrete_fourier_epsilon(&sample));
         });
     }
 
     #[bench]
-    fn bench_test_epsilon(b: &mut Bencher) {
+    fn bench_test_u8(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // 28,976,304.10 ns/iter
+        // 8,528,185.45
         b.iter(|| {
-            test::black_box(discrete_fourier_u64(&sample));
+            test::black_box(discrete_fourier_u8(&sample));
         });
     }
 
     #[bench]
-    fn bench_test_fft(b: &mut Bencher) {
+    fn bench_test_u64(b: &mut Bencher) {
         let sample: Sample = E.into();
-        let e = &sample.e;
-        let mut f = Vec::with_capacity(e.len());
-        for i in 0..e.len() {
-            f.push(Complex {
-                re: e[i] as f64,
-                im: 0.0,
-            });
-        }
 
-        // 25,085,366.60 ns/iter
+        // 22,630,787.50
+        // 12,930,812.50
         b.iter(|| {
-            let mut ff = f.clone();
-            test::black_box(fft(&mut ff));
+            test::black_box(discrete_fourier_u64(&sample));
         });
     }
+    // #[bench]
+    // fn bench_test_fft(b: &mut Bencher) {
+    //     let sample: Sample = E.into();
+    //     let e = &sample.e;
+    //     let mut f = Vec::with_capacity(e.len());
+    //     for i in 0..e.len() {
+    //         f.push(Complex {
+    //             re: e[i] as f64,
+    //             im: 0.0,
+    //         });
+    //     }
 
+    //     // 25,085,366.60 ns/iter
+    //     b.iter(|| {
+    //         let mut ff = f.clone();
+    //         test::black_box(fft(&mut ff));
+    //     });
+    // }
 }

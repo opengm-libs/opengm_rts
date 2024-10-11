@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
-use super::rank_u64::rank_u64;
-use crate::{Sample, TestResult};
+use super::rank_u64::*;
+use crate::{Sample, TestResult, USE_U8};
 
 // The fixed 32x32 matrix dimension
 const MATRIX_DIM: usize = 32;
@@ -9,7 +9,11 @@ const MATRIX_SIZE: usize = MATRIX_DIM * MATRIX_DIM;
 
 /// 矩阵秩检测
 pub(crate) fn rank(sample: &Sample) -> TestResult {
-    rank_u64(sample)
+    if USE_U8 {
+        rank_u8(sample)
+    } else {
+        rank_u64(sample)
+    }
 }
 #[cfg(test)]
 pub(crate) fn rank_epsilon(sample: &Sample) -> TestResult {
@@ -52,14 +56,11 @@ pub(crate) fn rank_epsilon(sample: &Sample) -> TestResult {
     v += powi(F_30 - N * p_30, 2) / (N * p_30);
 
     let pv = igamc(1.0, v / 2.0);
-    TestResult {
-        pv,
-        qv: pv,
-    }
+    TestResult { pv, qv: pv }
 }
 
 struct Matrix {
-    data: [u8; MATRIX_SIZE],        // the elements of the matrix
+    data: [u8; MATRIX_SIZE], // the elements of the matrix
     row_index: [usize; MATRIX_DIM], // [0,32,64,...], the beginning of the row index in data
 }
 
@@ -104,7 +105,8 @@ impl Matrix {
     }
 
     fn swap_row(&mut self, i: usize, j: usize) {
-        (self.row_index[i], self.row_index[j]) = (self.row_index[j], self.row_index[i]);
+        (self.row_index[i], self.row_index[j]) =
+            (self.row_index[j], self.row_index[i]);
     }
 
     // add row2 to row1, starting from start_pos

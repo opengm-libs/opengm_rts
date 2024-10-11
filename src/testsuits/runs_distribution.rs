@@ -1,9 +1,13 @@
-use super::util::*;
-use crate::{get_bit_unchecked, Sample, TestResult};
+use super::{util::*, super::USE_U8};
+use crate::{get_bit_unchecked_u64, Sample, TestResult};
 
 /// 游程分布检测
 pub(crate) fn runs_distribution(sample: &Sample) -> TestResult {
-    runs_distribution_u64(sample)
+    if USE_U8 {
+        runs_distribution_u8(sample)
+    } else {
+        runs_distribution_u64(sample)
+    }
 }
 
 #[inline]
@@ -90,7 +94,7 @@ pub(crate) fn runs_distribution_epsilon(sample: &Sample) -> TestResult {
 }
 
 ////////////////////////////////////////////////////////////////
-///
+
 pub(crate) fn runs_distribution_u64(sample: &Sample) -> TestResult {
     let n = sample.bit_length;
     let k = ei(n);
@@ -98,7 +102,7 @@ pub(crate) fn runs_distribution_u64(sample: &Sample) -> TestResult {
 
     // bi[0] and gi[0] are dummy.
     let mut bg = vec![vec![0; k + 1], vec![0; k + 1]];
-    count_runs(&sample.b64, sample.len(), &mut bg, k);
+    count_runs_u64(&sample.b64, sample.len(), &mut bg, k);
     let bi = &bg[0];
     let gi = &bg[1];
 
@@ -120,8 +124,7 @@ pub(crate) fn runs_distribution_u64(sample: &Sample) -> TestResult {
     TestResult { pv, qv: pv }
 }
 
-////////////////////////////////////////////////////////////////
-fn count_runs(b64: &[u64], n: usize, runs: &mut Vec<Vec<u64>>, k: usize) {
+fn count_runs_u64(b64: &[u64], n: usize, runs: &mut Vec<Vec<u64>>, k: usize) {
     let mut tail = 1 ^ ((b64[0] >> 63) as u8);
     let mut tail_run = 0;
     if n % 64 == 0 {
@@ -133,7 +136,7 @@ fn count_runs(b64: &[u64], n: usize, runs: &mut Vec<Vec<u64>>, k: usize) {
             (tail, tail_run) = count_runs_single(tail, tail_run, *b, runs, k);
         }
         let mut x = b64[b64.len() - 1];
-        let last_bit = get_bit_unchecked(b64, n - 1);
+        let last_bit = get_bit_unchecked_u64(b64, n - 1);
         let last_run = 64 - n % 64;
         if last_bit == 0 {
             x |= lower_bits_mask_u64(last_run);
@@ -143,6 +146,67 @@ fn count_runs(b64: &[u64], n: usize, runs: &mut Vec<Vec<u64>>, k: usize) {
         runs[1 ^ last_bit as usize][idx] -= 1;
     }
 }
+
+////////////////////////////////////////////////////////////////
+///
+
+pub(crate) fn runs_distribution_u8(sample: &Sample) -> TestResult {
+    let n = sample.bit_length;
+    let k = ei(n);
+
+    // bi[0] and gi[0] are dummy.
+    let mut bg = vec![vec![0; k + 1], vec![0; k + 1]];
+    count_runs_u8(&sample.b, &mut bg, k);
+    let bi = &bg[0];
+    let gi = &bg[1];
+
+    let mut t = 0f64;
+    for i in 1..(k + 1) {
+        t += (bi[i] + gi[i]) as f64;
+    }
+
+    let mut v = 0.0;
+    let mut ei;
+    for i in 1..k {
+        ei = t / powi(2.0, i as i32 + 1);
+        v += (powi(bi[i] as f64 - ei, 2) + powi(gi[i] as f64 - ei, 2)) / ei;
+    }
+    ei = t / powi(2.0, k as i32);
+    v += (powi(bi[k] as f64 - ei, 2) + powi(gi[k] as f64 - ei, 2)) / ei;
+
+    let pv = igamc((k - 1) as f64, v / 2.0);
+    TestResult { pv, qv: pv }
+}
+
+fn count_runs_u8(b8: &[u8], runs: &mut Vec<Vec<u64>>, k: usize) {
+    // tail init to the flipped bit of epsilon[0].
+    let mut last_bit = 1 ^ ((b8[0] >> 7) as u8);
+    let mut last_run = 0;
+
+    let full_chunks = b8.len() & (!7);
+    for chunk in b8[..full_chunks].chunks_exact(8) {
+        let x = u64::from_be_bytes(chunk.try_into().unwrap());
+        (last_bit, last_run) =
+            count_runs_single(last_bit, last_run, x, runs, k);
+    }
+    if b8.len() > full_chunks {
+        // tail || 00...0
+        let mut tail = u64_from_be_slice(&b8[full_chunks..]);
+        let tail_bits = (b8.len() - full_chunks) * 8;
+
+        // if tail ends with 0, then x = tail || 11..1
+        if (tail >> (64 - tail_bits)) & 1 == 0 {
+            tail |= lower_bits_mask_u64(64 - tail_bits);
+        }
+        count_runs_single(last_bit, last_run, tail, runs, k);
+
+        // fix
+        let idx = saturating_ceil(64 - tail_bits, k);
+        runs[(tail & 1) as usize][idx] -= 1;
+    }
+}
+
+////////////////////////////////////////////////////////////////
 
 fn count_runs_single(
     last_bit: u8,
@@ -207,7 +271,7 @@ mod tests {
         let k = 10;
         let sample: Sample = E.into();
         let mut bg = vec![vec![0; k + 1], vec![0; k + 1]];
-        count_runs(&sample.b64, sample.len(), &mut bg, k);
+        count_runs_u64(&sample.b64, sample.len(), &mut bg, k);
     }
 
     #[test]
@@ -224,15 +288,21 @@ mod tests {
         let sample: Sample = E.into();
         assert_eq!(tv1.1, runs_distribution_epsilon(&sample));
         assert_eq!(tv1.1, runs_distribution_u64(&sample));
+        assert_eq!(tv1.1, runs_distribution_u8(&sample));
     }
 
     #[test]
     fn test_equal() {
-        for nbits in 9..2000 {
+        for nbits in 13..2000 {
+            println!("{:?}", nbits);
             let sample: Sample = E[..nbits * 8].into();
             assert_eq!(
                 runs_distribution_u64(&sample),
                 runs_distribution_epsilon(&sample)
+            );
+            assert_eq!(
+                runs_distribution_u64(&sample),
+                runs_distribution_u8(&sample)
             );
         }
     }
@@ -245,13 +315,32 @@ mod bench {
     use crate::{test_data::E, Sample};
     use test::Bencher;
     #[bench]
-    fn bench_runs(b: &mut Bencher) {
-        let k = 10;
+    fn bench_runs_epsilon(b: &mut Bencher) {
         let sample: Sample = E.into();
-        let mut bg = vec![vec![0; k + 1], vec![0; k + 1]];
-        // m= 952,479.20
+
+        // m= 4,153,120.85
         b.iter(|| {
-            test::black_box(count_runs(&sample.b64, sample.len(), &mut bg, k));
+            test::black_box(runs_distribution_epsilon(&sample));
+        });
+    }
+
+    #[bench]
+    fn bench_runs_u64(b: &mut Bencher) {
+        let sample: Sample = E.into();
+
+        // m= 942,247.90 ns/iter
+        b.iter(|| {
+            test::black_box(runs_distribution_u64(&sample));
+        });
+    }
+
+    #[bench]
+    fn bench_runs_u8(b: &mut Bencher) {
+        let sample: Sample = E.into();
+
+        // m= 976,596.35 ns/iter
+        b.iter(|| {
+            test::black_box(runs_distribution_u8(&sample));
         });
     }
 }

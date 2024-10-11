@@ -8,6 +8,7 @@ mod cumulative_sums;
 mod discrete_fourier;
 mod frequency;
 mod linear_complexity;
+pub(crate) mod linear_complexity_simd;
 mod longest_run;
 mod poker;
 mod rank;
@@ -32,6 +33,8 @@ pub(crate) use runs::*;
 pub(crate) use runs_distribution::*;
 pub(crate) use serial::*;
 pub(crate) use universal::*;
+
+
 
 //Test vectors
 #[cfg(test)]

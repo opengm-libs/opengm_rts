@@ -26,7 +26,53 @@ pub(crate) fn rank_u64(sample: &Sample) -> TestResult {
     let mut m = Matrix::default();
     let chunk_size = MATRIX_DIM * MATRIX_DIM / 64;
     for chunk in b64[..N*chunk_size].chunks_exact(chunk_size) {
-        m.from_slice(chunk);
+        m.from_slice_u64(chunk);
+        let rank = m.compute_rank();
+        if 32 == rank {
+            F_32 += 1
+        }
+        if 31 == rank {
+            F_31 += 1
+        }
+    }
+    let F_30 = N - F_32 - F_31;
+
+    let F_32 = F_32 as f64;
+    let F_31 = F_31 as f64;
+    let F_30 = F_30 as f64;
+    let N = N as f64;
+
+    let mut v = 0.0;
+    v += powi(F_32 - N * p_32, 2) / (N * p_32);
+    v += powi(F_31 - N * p_31, 2) / (N * p_31);
+    v += powi(F_30 - N * p_30, 2) / (N * p_30);
+
+    let pv = igamc(1.0, v / 2.0);
+    TestResult { pv, qv: pv }
+}
+
+
+/// 矩阵秩检测
+pub(crate) fn rank_u8(sample: &Sample) -> TestResult {
+    let b8 = &sample.b;
+    let n = sample.len();
+
+    let N = n / (MATRIX_DIM * MATRIX_DIM);
+    
+    if N == 0 {
+        return TestResult::default();
+    }
+    
+    let p_32 = 0.2888;
+    let p_31 = 0.5776;
+    let p_30 = 0.1336;
+    
+    let mut F_32 = 0;
+    let mut F_31 = 0;
+    let mut m = Matrix::default();
+    let chunk_size = MATRIX_DIM * MATRIX_DIM / 8;
+    for chunk in b8[..N*chunk_size].chunks_exact(chunk_size) {
+        m.from_slice_u8(chunk);
         let rank = m.compute_rank();
         if 32 == rank {
             F_32 += 1
@@ -58,11 +104,17 @@ struct Matrix {
 
 impl Matrix {
     #[inline(always)]
-    fn from_slice(&mut self, m: &[u64]) {
+    fn from_slice_u64(&mut self, m: &[u64]) {
         for (i, x) in m.iter().enumerate() {
             for j in 0..64 / MATRIX_DIM {
                 self.m[2*i+j] = ((*x) >> (MATRIX_DIM * j)) as u32;
             }
+        }
+    }
+    #[inline(always)]
+    fn from_slice_u8(&mut self, m: &[u8]) {
+        for i in 0..32{
+            self.m[i] = u32::from_be_bytes(m[i*4..(i+1)*4].try_into().unwrap());
         }
     }
 
@@ -82,21 +134,6 @@ impl Matrix {
     fn swap_row(&mut self, i: usize, j: usize) {
         (self.m[i], self.m[j]) = (self.m[j], self.m[i])
     }
-
-    // add row2 to row1, starting from start_pos
-    // #[inline(always)]
-    // fn add_row(&mut self, row1: usize, row2: usize, start_pos: usize) {
-    //     // for k in start_pos..MATRIX_DIM {
-    //     //     let v = (self.get(row1, k) + self.get(row2, k)) % 2;
-    //     //     self.set(row1, k, v);
-    //     // }
-
-    //     // 0..01111 with start_pos '0'.
-    //     let mask = (!0)>>start_pos;
-    //     let mut row = self.m[row1] ^ self.m[row2];
-    //     self.m[row1] &= !mask;
-    //     self.m[row1] |= row & mask;
-    // }
 
     #[inline(always)]
     fn add_row(&mut self, row1: usize, row2: usize) {
@@ -162,6 +199,7 @@ mod tests {
         let sample: Sample = E.into();
         assert_eq!(tv1.1, rank_epsilon(&sample));
         assert_eq!(tv1.1, rank_u64(&sample));
+        assert_eq!(tv1.1, rank_u8(&sample));
     }
 
     #[test]
@@ -169,6 +207,7 @@ mod tests {
         for nbits in 250..1000 {
             let sample: Sample = E[..nbits * 8].into();
             assert_eq!(rank_epsilon(&sample), rank_u64(&sample));
+            assert_eq!(rank_u8(&sample), rank_u64(&sample));
         }
     }
 }

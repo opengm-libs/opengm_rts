@@ -1,4 +1,8 @@
 mod math;
+pub mod u500;
+pub mod u1000;
+pub mod u5000;
+
 pub(crate) use math::*;
 
 use crate::Sample;
@@ -32,28 +36,50 @@ pub(crate) fn popcount_epsilon(e: &[u8]) -> u64 {
     sum
 }
 
+const COUNT_TABLE: [u8; 256] = [
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2,
+    3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3,
+    3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3,
+    4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4,
+    3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5,
+    6, 6, 7, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4,
+    4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5,
+    6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 2, 3, 3, 4, 3, 4, 4, 5,
+    3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 3,
+    4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6,
+    6, 7, 6, 7, 7, 8,
+];
+
 // each bytes in b contains 8 bits
-pub(crate) fn popcount(b: &[u8]) -> u64 {
-    let mut pop = 0;
+pub(crate) fn popcount_u8(b: &[u8]) -> u64 {
+    if false {
+        let mut pop = 0;
+        for x in b{
+            pop += COUNT_TABLE[(*x) as usize] as u64;
+        }
+        pop
+    } else {
+        let mut pop = 0;
 
-    let full_blocks16 = b.len() & (!15);
-    for chunk in b[..full_blocks16].chunks_exact(16) {
-        pop += u128::from_ne_bytes(chunk.try_into().unwrap()).count_ones();
+        let full_blocks16 = b.len() & (!15);
+        for chunk in b[..full_blocks16].chunks_exact(16) {
+            pop += u128::from_ne_bytes(chunk.try_into().unwrap()).count_ones();
+        }
+
+        let full_blocks8 = b.len() & (!7);
+        for chunk in b[full_blocks16..full_blocks8].chunks_exact(8) {
+            pop += u64::from_ne_bytes(chunk.try_into().unwrap()).count_ones();
+        }
+
+        let mut tail = 0;
+        for i in b[full_blocks8..].iter() {
+            tail <<= 8;
+            tail |= (*i) as u64;
+        }
+
+        pop += tail.count_ones();
+        pop as u64
     }
-
-    let full_blocks8 = b.len() & (!7);
-    for chunk in b[full_blocks16..full_blocks8].chunks_exact(8) {
-        pop += u64::from_ne_bytes(chunk.try_into().unwrap()).count_ones();
-    }
-
-    let mut tail = 0;
-    for i in b[full_blocks8..].iter() {
-        tail <<= 8;
-        tail |= (*i) as u64;
-    }
-
-    pop += tail.count_ones();
-    pop as u64
 }
 
 // each bytes in b contains 8 bits
@@ -82,7 +108,7 @@ pub(crate) fn saturating<T: core::cmp::PartialOrd>(n: T, min: T, max: T) -> T {
 pub(crate) fn saturating_ceil<T: core::cmp::PartialOrd>(n: T, max: T) -> T {
     if n >= max {
         max
-    }else{
+    } else {
         n
     }
 }
@@ -146,6 +172,102 @@ pub(crate) fn u64_from_be_slice(d: &[u8]) -> u64 {
     x
 }
 
+// construct a u64 from a slice.
+// For example, d = [0x12,0x34,0x56,0x78], then returns 0x12345678.
+#[inline(always)]
+pub(crate) fn u64_from_be_slice_aligned_right(d: &[u8]) -> u64 {
+    let mut x = 0;
+    let mut i = 0;
+    while i < d.len() {
+        x = (x << 8) | d[i] as u64;
+        i += 1;
+    }
+    x
+}
+
+// construct a u64 from a slice, where d.len() <= 8, padding zeros at LSB.
+// For example, d = [0x12,0x34,0x56,0x78], then returns 0x1234567800000000.
+#[inline(always)]
+pub(crate) fn u128_from_be_slice(d: &[u8]) -> u128 {
+    let mut x = 0;
+    let mut i = 0;
+    while i < d.len() {
+        x = (x << 8) | d[i] as u128;
+        i += 1;
+    }
+    x <<= (16 - i) * 8;
+    x
+}
+
+////////////////////////////////////////////////////////////////  
+
+// 重叠m子序列计数
+// 重叠子序列和近似熵测试使用.
+// 重叠子序列m的可能取值为(m,m-1,m-2): 0,1,2,3,4,5,6,7
+// 近似熵m可能取值:2,5,7 and 3,6,8
+// 参见:GM/T 0005-2021, 附录A
+pub(crate) fn overlapping_patterns_u8(sample: &Sample, m: usize) -> Vec<u64> {
+    assert!(m <= 8);
+
+    if m == 0 {
+        return Vec::new();
+    }
+
+    if m == 1 {
+        return vec![sample.len() as u64 - sample.pop, sample.pop];
+    }
+
+    if let Ok(pat) = sample.patterns.lock() {
+        if pat.len() >= m + 1 {
+            if let Some(v) = &pat[m] {
+                return v.clone();
+            }
+        }
+    }
+
+    debug_assert!(sample.len() >= 64);
+    
+    let b8 = &sample.b;
+    let mut bucket = vec![0u64; 1 << m];
+
+    // The first
+    let mut x = (u32::from_be_bytes(b8[..4].try_into().unwrap()) as u64) << 32;
+    let full_chunks32 = b8.len() & (!3);
+    for chunk32 in b8[4..full_chunks32].chunks_exact(4){
+        x |= u32::from_be_bytes(chunk32.try_into().unwrap()) as u64;
+        // process higher 32 bits
+        for _ in 0..32 {
+            bucket[(x >> (64-m)) as usize] += 1;
+            x <<= 1;
+        }
+    }
+
+    let mut tail = u64_from_be_slice_aligned_right(&b8[full_chunks32..]);
+    tail <<= m-1;
+    // padding the first m-1 bits to end, note that m < 8
+    tail |= (b8[0] >> (8-(m-1))) as u64;
+    let tail_bits = (b8.len() - full_chunks32)*8 + m-1;
+
+    // concate x and tail
+    x |= tail << 32 - tail_bits;
+
+    for _ in 0..(32+tail_bits - (m-1)) {
+        bucket[(x >> (64-m)) as usize] += 1;
+        x <<= 1;
+    }
+
+    if let Ok(mut pat) = sample.patterns.lock() {
+        if pat.len() <= m {
+            pat.resize(m + 1, None);
+        }
+        pat[m] = Some(bucket.clone());
+    }
+
+    bucket
+}
+
+//////////////////////////////////////////////////////////////// 
+
 // 处理一个u64,统计重叠子序列模式, tail为上一个u64未处理的最后m-1比特.
 #[inline(always)]
 fn overlapping_patterns_process_u64(
@@ -176,9 +298,9 @@ fn overlapping_patterns_process_u64(
 // 重叠m子序列计数
 // 重叠子序列和近似熵测试使用.
 // 重叠子序列m的可能取值为(m,m-1,m-2): 0,1,2,3,4,5,6,7
-// 近似熵m可能取值:2,5,7
+// 近似熵m可能取值:2,5,7, 3,6,8
 // 参见:GM/T 0005-2021, 附录A
-pub(crate) fn overlapping_patterns(sample: &Sample, M: usize) -> Vec<u64> {
+pub(crate) fn overlapping_patterns_u64(sample: &Sample, M: usize) -> Vec<u64> {
     if M == 0 {
         return Vec::new();
     }
@@ -293,7 +415,7 @@ mod tests {
                 naive_popcount(e.as_slice()),
                 popcount_epsilon(e.as_slice())
             );
-            assert_eq!(naive_popcount(b.as_slice()), popcount(b.as_slice()));
+            assert_eq!(naive_popcount(b.as_slice()), popcount_u8(b.as_slice()));
         }
     }
 
@@ -319,7 +441,7 @@ mod tests {
         }
         // 1,026.40 ns/iter ns/iter
         b.iter(|| {
-            test::black_box(popcount(e.as_slice()));
+            test::black_box(popcount_u8(e.as_slice()));
         });
     }
 }

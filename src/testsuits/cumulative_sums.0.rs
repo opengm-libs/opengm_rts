@@ -167,103 +167,53 @@ fn cumulative_sums_inner_u8(b8: &[u8], n: usize, forward: bool) -> f64 {
     let mut S = 0;
     let mut sup = 0;
     let mut inf = 0;
-    let z ;
+    let mut z = 0;
 
     if forward {
-        let full_chunks = b8.len() & (!7);
-        for chunk in b8[..full_chunks].chunks_exact(8) {
-            let b = u64::from_be_bytes(chunk.try_into().unwrap());
-            for i in (1..63).rev() {
-                S += ((b >> i) & 2) as i32 - 1;
-                // a little faster
-                if S > sup {
-                    sup += 1;
-                }
-                if S < inf {
-                    inf -= 1;
-                }
-                // if S > sup, then the MSB bit is 1
-                // S += ((b >> i) & 2) as i32 - 1;
-                // sup += (((sup - S) as u32) >> 31) as i32;
-                // inf -= (((S - inf) as u32) >> 31) as i32;
-            }
-
-            // process bit 1 of b
-            S += (b & 2) as i32 - 1;
-            if S > sup {
-                sup += 1;
-            }
-            if S < inf {
-                inf -= 1;
-            }
-
-            // process bit 0 of b
-            S += 2 * (b & 1) as i32 - 1;
-            if S > sup {
-                sup += 1;
-            }
-            if S < inf {
-                inf -= 1;
-            }
-        }
-        for b in &b8[full_chunks..] {
+        for b in b8 {
             // process bits 7,6,5,4,3,2 of b
             for i in [6, 5, 4, 3, 2, 1] {
                 S += ((*b >> i) & 2) as i32 - 1;
-                if S > sup {
-                    sup += 1;
-                }
-                if S < inf {
-                    inf -= 1;
-                }
+                // if S > sup {
+                //     sup += 1;
+                // }
+                //
+                // if S > sup, then the MSB bit is 1
+                // NO jump may faster.
+                sup += (((sup - S) as u32) >> 31) as i32;
+
+                // if S < inf {
+                //     inf -= 1;
+                // }
+                inf -= (((S - inf) as u32) >> 31) as i32;
             }
             // process bit 1 of b
             S += (*b & 2) as i32 - 1;
-            if S > sup {
-                sup += 1;
-            }
-            if S < inf {
-                inf -= 1;
-            }
+            sup += (((sup - S) as u32) >> 31) as i32;
+            inf -= (((S - inf) as u32) >> 31) as i32;
 
             // process bit 0 of b
             S += 2 * (*b & 1) as i32 - 1;
-            if S > sup {
-                sup += 1;
-            }
-            if S < inf {
-                inf -= 1;
-            }
+            sup += (((sup - S) as u32) >> 31) as i32;
+            inf -= (((S - inf) as u32) >> 31) as i32;
         }
         z = if sup > -inf { sup } else { -inf };
     } else {
         for b in b8.iter().rev() {
             // process bit 0 of b
             S += 2 * (*b & 1) as i32 - 1;
-            if S > sup {
-                sup += 1;
-            }
-            if S < inf {
-                inf -= 1;
-            }
+            sup += (((sup - S) as u32) >> 31) as i32;
+            inf -= (((S - inf) as u32) >> 31) as i32;
             // process bit 1 of b
             S += (*b & 2) as i32 - 1;
-            if S > sup {
-                sup += 1;
-            }
-            if S < inf {
-                inf -= 1;
-            }
+            sup += (((sup - S) as u32) >> 31) as i32;
+            inf -= (((S - inf) as u32) >> 31) as i32;
 
             // process bits 2,3,4,5,6,7 of b
             for i in [1, 2, 3, 4, 5, 6] {
                 S += ((*b >> i) & 2) as i32 - 1;
-                if S > sup {
-                    sup += 1;
-                }
-                if S < inf {
-                    inf -= 1;
-                }
+                sup += (((sup - S) as u32) >> 31) as i32;
+                inf -= (((S - inf) as u32) >> 31) as i32;
             }
         }
         z = if sup > -inf { sup } else { -inf };
@@ -345,6 +295,7 @@ mod tests {
     }
 }
 
+
 #[cfg(test)]
 mod bench {
     extern crate test;
@@ -357,7 +308,7 @@ mod bench {
 
         // m= 1,081,497.27 ns/iter
         b.iter(|| {
-            test::black_box(cumulative_sums_forward_epsilon(&sample));
+            test::black_box(cumulative_sums_backward_epsilon(&sample));
         });
     }
 
@@ -365,9 +316,9 @@ mod bench {
     fn bench_runs_u64(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // m= 952,014.06 ns/iter
+        // m= 1,566,844.45 ns/iter 
         b.iter(|| {
-            test::black_box(cumulative_sums_forward_u64(&sample));
+            test::black_box(cumulative_sums_backward_u64(&sample));
         });
     }
 
@@ -375,9 +326,9 @@ mod bench {
     fn bench_runs_u8(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // m= 965,607.30
+        // m= 1,174,822.68
         b.iter(|| {
-            test::black_box(cumulative_sums_forward_u8(&sample));
+            test::black_box(cumulative_sums_backward_u8(&sample));
         });
     }
 }

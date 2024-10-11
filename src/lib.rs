@@ -1,14 +1,15 @@
 #![allow(dead_code)]
+#![allow(unused_imports)]
 #![allow(non_snake_case)]
 #![feature(test)]
+#![feature(portable_simd)]
 
 mod tester;
 mod testsuits;
-use std::sync::Mutex;
+use std::{slice::Iter, sync::Mutex};
 
 pub use tester::*;
 use testsuits::util::*;
-
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum TestFuncs {
@@ -40,8 +41,7 @@ pub struct TestResult {
 
 impl PartialEq for TestResult {
     fn eq(&self, other: &Self) -> bool {
-        (self.pv - other.pv).abs() < 0.0001
-            && (self.qv - other.qv).abs() < 0.0001
+        (self.pv - other.pv).abs() < 0.0001 && (self.qv - other.qv).abs() < 0.0001
     }
 }
 
@@ -51,19 +51,25 @@ impl TestResult {
     }
 }
 
-const MAX_OVERLAPPING_PATTERN: usize = 7;
+const MAX_OVERLAPPING_PATTERN: usize = 8;
+const USE_U8: bool = true;
 
 pub struct Sample {
     // Note: for a byte x, bit 0 is (x>>7) & 1 and bit 7 is x & 1.
+    b: Vec<u8>,
+
     // Note: for a u64 x, bit 0 is (x>>63) & 1 and bit 63 is x & 1.
-    // b: Vec<u8>,
+    // use Vec<u8> or Vec<u64> decided by set USE_U8 = true or false.
+    // The performace is approximatly equal.
     b64: Vec<u64>,
+
     bit_length: usize,
 
+    // The epsilon, use one u8 to repensent a bit.
     #[cfg(test)]
     e: Vec<u8>,
 
-    // popcount for e
+    // popcount
     pop: u64,
 
     // 重叠子序列和近似熵
@@ -86,70 +92,89 @@ fn combine(b: &[u8]) -> Vec<u64> {
 // from bit string("10100...")
 impl From<&str> for Sample {
     fn from(bit_string: &str) -> Self {
-        let mut e = Vec::with_capacity(bit_string.len());
-        let mut b = Vec::with_capacity((bit_string.len() + 7) / 8);
-        for c in bit_string.chars() {
-            e.push(c as u8 - '0' as u8);
-        }
-
-        let full_chunks = e.len() & (!7);
-        for chunk in e[..full_chunks].chunks_exact(8) {
-            let mut x = 0;
-            for i in chunk {
-                x = (x << 1) | ((*i) as u8);
+        let bit_length = bit_string.len();
+        let e = {
+            let mut e = Vec::with_capacity(bit_string.len());
+            for c in bit_string.chars() {
+                e.push(c as u8 - '0' as u8);
             }
-            b.push(x);
-        }
+            e
+        };
 
-        if full_chunks < e.len() {
-            let mut c = 0;
-            for (i, x) in e[full_chunks..].iter().enumerate() {
-                c |= (*x) << (7 - i);
+        let b = if USE_U8 {
+            let mut b = Vec::with_capacity((bit_string.len() + 7) / 8);
+            let full_chunks = bit_length & (!7);
+            for chunk in e[..full_chunks].chunks_exact(8) {
+                let mut x = 0;
+                for i in chunk {
+                    x = (x << 1) | ((*i) as u8);
+                }
+                b.push(x);
             }
-            b.push(c);
-        }
-        let b64 = combine(&b);
-        let pop = popcount(&b);
+            if full_chunks < bit_length {
+                let mut c = 0;
+                for (i, x) in e[full_chunks..].iter().enumerate() {
+                    c |= (*x) << (7 - i);
+                }
+                b.push(c);
+            }
+            b
+        } else {
+            Vec::new()
+        };
+
+        let b64 = if USE_U8 { Vec::new() } else { combine(&b) };
+
+        let pop = popcount_u8(&b);
         Sample {
-            // b: b,
+            b: b,
+            bit_length: bit_length,
             b64: b64,
             #[cfg(test)]
             e: e,
-            bit_length: bit_string.len(),
             pop: pop,
-            patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN+1]),
+            patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN + 1]),
         }
     }
 }
 
 impl From<&[u8]> for Sample {
     fn from(byte_slice: &[u8]) -> Self {
+        let bit_length = byte_slice.len() * 8;
         #[cfg(test)]
-        let mut e = Vec::with_capacity(byte_slice.len() * 8);
-        #[cfg(test)]
-        for c in byte_slice {
-            for j in 0..8 {
-                e.push((c >> (7 - j)) & 1)
+        let e = {
+            let mut e = Vec::with_capacity(byte_slice.len() * 8);
+            for c in byte_slice {
+                for j in 0..8 {
+                    e.push((c >> (7 - j)) & 1)
+                }
             }
-        }
+            e
+        };
 
-        let b64 = combine(&byte_slice);
-        let pop = popcount(&byte_slice);
+        let b64 = if USE_U8 { Vec::new() } else { combine(&byte_slice) };
+
+        let b = if USE_U8 { byte_slice.to_vec() } else { Vec::new() };
         Sample {
-            // b: byte_slice.to_vec(),
+            b,
+            bit_length,
             b64,
-            bit_length: byte_slice.len() * 8,
             #[cfg(test)]
             e,
-            pop: pop,
-            patterns:Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN+1]),
+            pop: popcount_u8(&byte_slice),
+            patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN + 1]),
         }
     }
 }
 
 #[inline(always)]
-fn get_bit_unchecked(b64: &[u64], i: usize) -> u8 {
+fn get_bit_unchecked_u64(b64: &[u64], i: usize) -> u8 {
     unsafe { (b64.get_unchecked(i / 64) >> (63 - (i & 63))) as u8 & 1 }
+}
+
+#[inline(always)]
+fn get_bit_unchecked_u8(b8: &[u8], i: usize) -> u8 {
+    unsafe { (b8.get_unchecked(i / 8) >> (8 - (i & 7))) as u8 & 1 }
 }
 
 impl Sample {
@@ -159,7 +184,7 @@ impl Sample {
 
     #[inline(always)]
     pub fn get_bit_unchecked(&self, i: usize) -> u8 {
-        get_bit_unchecked(&self.b64, i)
+        get_bit_unchecked_u64(&self.b64, i)
     }
 
     /// returns the number of bits of sample.
@@ -174,7 +199,7 @@ impl Sample {
 
     // return self.b64[self.b64.len()-1] aligned right.
     // i.e., the last bit is the return u64 & 1.
-    pub(crate) fn tail_aligned_right(&self) -> u64{
+    pub(crate) fn tail_aligned_right(&self) -> u64 {
         self.b64[self.b64.len() - 1] >> (64 - self.tail_length())
     }
 
@@ -237,6 +262,7 @@ impl Sample {
     }
 
     pub fn linear_complexity(&self, m: i32) -> TestResult {
+        // testsuits::linear_complexity_u64(self, m)
         testsuits::linear_complexity(self, m)
     }
 
@@ -268,18 +294,16 @@ pub fn qvalue_distribution(qv: &[f64], k: usize) -> f64 {
     igamc((k - 1) as f64 / 2.0, V / 2.0)
 }
 
-
 #[cfg(test)]
 mod test_data;
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashMap;
-    use std::time::Instant;
-    use rand::RngCore;
     use super::test_data::E;
     use super::*;
-
+    use rand::RngCore;
+    use std::collections::HashMap;
+    use std::time::Instant;
 
     // Test for all 15 test functions.
     // cargo test --release --package opengm_rts --lib -- tests::test_all --exact --show-output
@@ -351,26 +375,14 @@ pub mod tests {
         println!("rank: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.insert(
-            TestFuncs::CumulativeSumsForward,
-            sample.cumulative_sums_forward(),
-        );
+        pv.insert(TestFuncs::CumulativeSumsForward, sample.cumulative_sums_forward());
         let now = Instant::now();
-        println!(
-            "cumulative_sums_forward: {:.6} s",
-            (now - last).as_secs_f64()
-        );
+        println!("cumulative_sums_forward: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
-        pv.insert(
-            TestFuncs::CumulativeSumsBackward,
-            sample.cumulative_sums_backward(),
-        );
+        pv.insert(TestFuncs::CumulativeSumsBackward, sample.cumulative_sums_backward());
         let now = Instant::now();
-        println!(
-            "cumulative_sums_backward: {:.6} s",
-            (now - last).as_secs_f64()
-        );
+        println!("cumulative_sums_backward: {:.6} s", (now - last).as_secs_f64());
         let last = now;
 
         pv.insert(TestFuncs::ApproximateEntropy, sample.approximate_entropy(5));
@@ -400,7 +412,7 @@ pub mod tests {
     #[test]
     fn test_all_time() {
         let mut samples: Vec<Sample> = Vec::new();
-        let mut data = vec![0u8; 1000000/8];
+        let mut data = vec![0u8; 1000000 / 8];
         let mut rng = rand::thread_rng();
         for _ in 0..1000 {
             rng.fill_bytes(&mut data);
@@ -414,22 +426,21 @@ pub mod tests {
             // 0s
             // pv.insert(TestFuncs::Frequency, sample.frequency());
 
-            // // 0.01
+            // 0.01
             // pv.insert(TestFuncs::BlockFrequency, sample.block_frequency(10000));
 
+            // 0.09
             // pv.insert(TestFuncs::Poker, sample.poker(8));
 
-            // 0.90 s
+            // 1.10 s
             // pv.insert(TestFuncs::Serial1, sample.serial1(7));
-
-            // 1.47 s
             // pv.insert(TestFuncs::Serial2, sample.serial2(7));
 
             // 0.02 s
             // pv.insert(TestFuncs::Runs, sample.runs());
 
-            // 4.21 s - 0.98 s
-            pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
+            // 0.98 s
+            // pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
 
             // 0.96s - TODO
             // pv.insert(TestFuncs::LongestRun0, sample.longest_run0());
@@ -456,25 +467,26 @@ pub mod tests {
             //     sample.cumulative_sums_backward(),
             // );
 
-            // 4.69s, 0.94s
+            // 0.94s
             // pv.insert(
             //     TestFuncs::ApproximateEntropy,
             //     sample.approximate_entropy(5),
             // );
 
-            // m=1000:20s
-            // m=500:15s
+            // m=1000:16.975644 s
+            // m=500:12.231s
             // pv.insert(
             //     TestFuncs::LinearComplexity,
             //     sample.linear_complexity(500),
             // );
 
-            // 0.58s
+            // 0.58s - TODO
             // pv.insert(TestFuncs::Universal, sample.universal());
 
-            // 27s
-            // pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
+            // 25.199296 s(rustFFT)
+            // 12.091892 s(realFFT)
+            pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
         }
-        println!("total: {:.2} s", (Instant::now() - start).as_secs_f64());
+        println!("total: {:.6} s", (Instant::now() - start).as_secs_f64());
     }
 }

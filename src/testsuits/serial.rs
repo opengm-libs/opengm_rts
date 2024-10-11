@@ -1,4 +1,4 @@
-use super::util::*;
+use super::{super::USE_U8, util::*};
 use crate::{Sample, TestResult};
 
 const MAX_M: usize = 7;
@@ -7,13 +7,21 @@ const MIN_M: usize = 2;
 /// 重叠子序列p_value1检测
 #[inline(always)]
 pub(crate) fn serial1(sample: &Sample, m: i32) -> TestResult {
-    serial1_u64(sample, m)
+    if USE_U8 {
+        serial1_u8(sample, m)
+    } else {
+        serial1_u64(sample, m)
+    }
 }
 
 /// 重叠子序列p_value2检测
 #[inline(always)]
 pub(crate) fn serial2(sample: &Sample, m: i32) -> TestResult {
-    serial2_u64(sample, m)
+    if USE_U8 {
+        serial2_u8(sample, m)
+    } else {
+        serial2_u64(sample, m)
+    }
 }
 
 ////////////////////////////////////////////////////////////////
@@ -81,14 +89,58 @@ pub(crate) fn serial2_epsilon(sample: &Sample, m: i32) -> TestResult {
 ////////////////////////////////////////////////////////////////////////
 
 // m = 3,5,7 in GM/T 0005-2021.
-pub(crate) fn psi2_u64(sample: &Sample, M: usize) -> f64 {
+pub(crate) fn psi2_u8(sample: &Sample, M: usize) -> f64 {
     assert!(sample.len() >= 2);
-    if M == 0{
-        return 0.0
+    if M == 0 {
+        return 0.0;
     }
 
     let n = sample.len();
-    let patterns = overlapping_patterns(sample, M);
+    let patterns = overlapping_patterns_u8(sample, M);
+
+    let sum: f64 = patterns.iter().map(|x| ((*x) * (*x)) as f64).sum();
+    sum / (n as f64) * ((1 << M) as f64) - (n as f64)
+}
+
+/// 重叠子序列p_value1检测
+pub(crate) fn serial1_u8(sample: &Sample, m: i32) -> TestResult {
+    // m = 3,5,7
+
+    assert!(m <= MAX_M as i32 && m >= MIN_M as i32);
+
+    let p0 = psi2_u8(sample, m as usize);
+    let p1 = psi2_u8(sample, m as usize - 1);
+    let del1 = p0 - p1;
+    let pv = igamc(powi(2.0, m - 2), del1 / 2.0);
+
+    TestResult { pv, qv: pv }
+}
+
+/// 重叠子序列p_value2检测
+pub(crate) fn serial2_u8(sample: &Sample, m: i32) -> TestResult {
+    // note 2 <= m <= 10
+    assert!(m <= MAX_M as i32 && m >= MIN_M as i32);
+
+    let p0 = psi2_u8(sample, m as usize);
+    let p1 = psi2_u8(sample, m as usize - 1);
+    let p2 = psi2_u8(sample, m as usize - 2);
+
+    let del2 = p0 - 2.0 * p1 + p2;
+    let pv = igamc(powi(2.0, m - 3), del2 / 2.0);
+    TestResult { pv, qv: pv }
+}
+
+////////////////////////////////////////////////////////////////////////
+
+// m = 3,5,7 in GM/T 0005-2021.
+pub(crate) fn psi2_u64(sample: &Sample, M: usize) -> f64 {
+    assert!(sample.len() >= 2);
+    if M == 0 {
+        return 0.0;
+    }
+
+    let n = sample.len();
+    let patterns = overlapping_patterns_u64(sample, M);
 
     let sum: f64 = patterns.iter().map(|x| ((*x) * (*x)) as f64).sum();
     sum / (n as f64) * ((1 << M) as f64) - (n as f64)
@@ -121,10 +173,9 @@ pub(crate) fn serial2_u64(sample: &Sample, m: i32) -> TestResult {
     let pv = igamc(powi(2.0, m - 3), del2 / 2.0);
     TestResult { pv, qv: pv }
 }
-
 #[cfg(test)]
 mod tests {
-    use super::{*, super::tests::*};
+    use super::{super::tests::*, *};
     use crate::{test_data::E, Sample};
 
     #[test]
@@ -157,14 +208,17 @@ mod tests {
             let sample: Sample = E[..nbits * 8].into();
             for m in MIN_M..=MAX_M {
                 let m = m as i32;
-                assert_eq!(
-                    serial1_epsilon(&sample, m),
-                    serial1_u64(&sample, m)
-                );
-                assert_eq!(
-                    serial2_epsilon(&sample, m),
-                    serial2_u64(&sample, m)
-                );
+                let res0 = serial1_epsilon(&sample, m);
+                let res1 = serial1_u8(&sample, m);
+                let res2 = serial1_u64(&sample, m);
+                assert_eq!(res0, res1);
+                assert_eq!(res1, res2);
+
+                let res0 = serial2_epsilon(&sample, m);
+                let res1 = serial2_u8(&sample, m);
+                let res2 = serial2_u64(&sample, m);
+                assert_eq!(res0, res1);
+                assert_eq!(res1, res2);
             }
         }
     }
@@ -176,9 +230,20 @@ mod bench {
     use super::*;
     use crate::{test_data::E, Sample};
     use test::Bencher;
+    #[bench]
+    fn bench_test_u8(b: &mut Bencher) {
+        let sample: Sample = E.into();
+
+        // m=3: 134.45 ns/iter
+        // m=5: 167.77 ns/iter
+        // m=7: 414.03 ns/iter
+        b.iter(|| {
+            test::black_box(serial1_u8(&sample, 3));
+        });
+    }
 
     #[bench]
-    fn bench_test(b: &mut Bencher) {
+    fn bench_test_u64(b: &mut Bencher) {
         let sample: Sample = E.into();
 
         // m=3: 2,232,047.90 ns/iter
