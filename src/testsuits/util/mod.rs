@@ -198,6 +198,18 @@ pub(crate) fn u128_from_be_slice(d: &[u8]) -> u128 {
     x <<= (16 - i) * 8;
     x
 }
+// construct a u64 from a slice.
+// For example, d = [0x12,0x34,0x56,0x78], then returns 0x12345678.
+#[inline(always)]
+pub(crate) fn u128_from_be_slice_aligned_right(d: &[u8]) -> u128 {
+    let mut x = 0;
+    let mut i = 0;
+    while i < d.len() {
+        x = (x << 8) | d[i] as u128;
+        i += 1;
+    }
+    x
+}
 
 ////////////////////////////////////////////////////////////////  
 
@@ -403,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn test_popcount() {
+    fn test_popcount_u8() {
         for n in 1..10 {
             let mut e = Vec::new();
             let mut b = Vec::new();
@@ -422,7 +434,7 @@ mod tests {
     extern crate test;
     use test::Bencher;
     #[bench]
-    fn bench_popcount(b: &mut Bencher) {
+    fn bench_popcount_epsilon(b: &mut Bencher) {
         let mut e = Vec::new();
         for i in 0u64..1000000 {
             e.push((i * i * i % 7 % 2) as u8);
@@ -434,12 +446,24 @@ mod tests {
     }
 
     #[bench]
-    fn bench_popcount_dense(b: &mut Bencher) {
+    fn bench_popcount_u64(b: &mut Bencher) {
+        let mut e = Vec::new();
+        for i in 0u64..1000000 / 64 {
+            e.push((i * i * i) as u64);
+        }
+
+        b.iter(|| {
+            test::black_box(popcount_u64(e.as_slice()));
+        });
+    }
+
+    #[bench]
+    fn bench_popcount_u8(b: &mut Bencher) {
         let mut e = Vec::new();
         for i in 0u64..1000000 / 8 {
             e.push((i * i * i) as u8);
         }
-        // 1,026.40 ns/iter ns/iter
+        
         b.iter(|| {
             test::black_box(popcount_u8(e.as_slice()));
         });

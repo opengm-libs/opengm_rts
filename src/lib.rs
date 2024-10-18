@@ -76,7 +76,7 @@ pub struct Sample {
     patterns: Mutex<Vec<Option<Vec<u64>>>>,
 }
 
-fn combine(b: &[u8]) -> Vec<u64> {
+fn u64_from(b: &[u8]) -> Vec<u64> {
     let mut b64 = Vec::with_capacity((b.len() + 7) / 8);
     let full_chunks = b.len() & (!7);
     for chunk in b[..full_chunks].chunks_exact(8) {
@@ -123,7 +123,10 @@ impl From<&str> for Sample {
             Vec::new()
         };
 
-        let b64 = if USE_U8 { Vec::new() } else { combine(&b) };
+        #[cfg(test)]
+        let b64 = u64_from(&b);
+        #[cfg(not(test))]
+        let b64 = if USE_U8 { Vec::new() } else { u64_from(&b) };
 
         let pop = popcount_u8(&b);
         Sample {
@@ -152,7 +155,10 @@ impl From<&[u8]> for Sample {
             e
         };
 
-        let b64 = if USE_U8 { Vec::new() } else { combine(&byte_slice) };
+        #[cfg(test)]
+        let b64 = u64_from(&byte_slice);
+        #[cfg(not(test))]
+        let b64 = if USE_U8 { Vec::new() } else { u64_from(&byte_slice) };
 
         let b = if USE_U8 { byte_slice.to_vec() } else { Vec::new() };
         Sample {
@@ -287,7 +293,11 @@ pub fn qvalue_distribution(qv: &[f64], k: usize) -> f64 {
 
     // i/k <= v < (i+1)/k => i <= kv < i+1
     for v in qv {
-        F[(*v * k as f64).floor() as usize] += 1.0;
+        let mut idx = (*v * k as f64).floor() as usize;
+        if idx >= k{
+            idx = k-1;
+        }
+        F[idx] += 1.0;
     }
     let sk = s as f64 / k as f64;
     let V: f64 = F.iter().map(|f| (*f - sk) * (*f - sk) / sk).sum();

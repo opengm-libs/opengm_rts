@@ -172,13 +172,13 @@ fn get_param(f: TestFuncs, bits: usize) -> Option<Vec<i32>> {
         }
     } else {
         match f {
-            TestFuncs::BlockFrequency => Some(vec![1000000]),
+            TestFuncs::BlockFrequency => Some(vec![100000]),
             TestFuncs::Poker => Some(vec![4, 8]),
             TestFuncs::Serial1 | TestFuncs::Serial2 => Some(vec![3, 5, 7]),
             TestFuncs::LongestRun0 | TestFuncs::LongestRun1 => Some(vec![10000]),
             TestFuncs::BinaryDerivative => Some(vec![3, 7, 15]),
             TestFuncs::Autocorrelation => Some(vec![1, 2, 8, 16, 32]),
-            TestFuncs::ApproximateEntropy => Some(vec![2, 5]),
+            TestFuncs::ApproximateEntropy => Some(vec![5,7]),
             TestFuncs::LinearComplexity => Some(vec![5000]),
             _ => None,
         }

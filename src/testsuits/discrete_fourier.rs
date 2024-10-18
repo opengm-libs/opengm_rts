@@ -8,10 +8,67 @@ use rustfft::{
     num_complex::{Complex, Complex32, Complex64, ComplexFloat},
     Fft, FftPlanner,
 };
-
 use std::sync::{LazyLock, Mutex};
+
+// a Vec<T> memory pool
+// 内存最多会占用 O(占用线程数 * 测试数据).
+// 1亿比特10线程大概18GB.
+// TODO: 控制内存总量,如果VecPool空了,则返回错误, 样本测试函数执行下一个测试.
+// 使得差不多一半执行线性复杂度检测,一半执行FFT检测.
+struct VecPool (Vec<(Vec<f32>, Vec<Complex32>)>);
+impl VecPool{
+    #[inline]
+    fn new() -> Self {
+        VecPool(Vec::with_capacity(8))
+    }
+    #[inline]
+    fn len(&self)-> usize {
+        self.0.len()
+    }
+    #[inline]
+    fn pop(&mut self)-> Option<(Vec<f32>, Vec<Complex32>)>{
+        self.0.pop()
+    }
+    #[inline]
+    fn push(&mut self, v: (Vec<f32>, Vec<Complex32>)) {
+        self.0.push(v)
+    }
+}
+
+
+static VEC_POOL: LazyLock<Mutex<VecPool>> = 
+    LazyLock::new(|| Mutex::new(VecPool::new()));
+
+// static VEC_POOL_F32: LazyLock<Mutex<VecPool<f32>>> = 
+//     LazyLock::new(|| Mutex::new(VecPool::new()));
+
+// static VEC_POOL_COMPLEX32: LazyLock<Mutex<VecPool<Complex32>>> = 
+//     LazyLock::new(|| Mutex::new(VecPool::new()));
+
 static FFT_PLANNER: LazyLock<Mutex<RealFftPlanner<f32>>> =
     LazyLock::new(|| Mutex::new(RealFftPlanner::new()));
+
+
+// get vec form pool, the return vec's length is not guaranteed.
+#[inline]
+fn get_vec(n: usize)-> (Vec<f32>, Vec<Complex32>){
+    if let Ok(mut p) = VEC_POOL.try_lock(){
+        if p.len() > 0{
+            return p.pop().unwrap()
+        }
+    }
+    (Vec::with_capacity(n), Vec::with_capacity(n/2+1))
+}
+
+#[inline]
+fn put_vec(v: (Vec<f32>, Vec<Complex32>)){
+    if let Ok(mut p) = VEC_POOL.lock(){
+        p.push(v);
+    }
+}
+
+
+#[inline]
 fn get_fft(n: usize) -> Arc<dyn RealToComplex<f32>> {
     FFT_PLANNER.lock().unwrap().plan_fft_forward(n)
 }
@@ -59,7 +116,11 @@ pub(crate) fn discrete_fourier_epsilon(sample: &Sample) -> TestResult {
 /// 离散傅里叶检测
 pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
     let n = sample.len();
-    let mut e = Vec::with_capacity(n);
+    
+    // let mut e = Vec::with_capacity(n);
+    let (mut e, mut f) = get_vec(n);
+    e.clear();
+
     let b8 = &sample.b;
     let full_chunks = b8.len() & (!7);
     for chunk in b8[..full_chunks].chunks_exact(8) {
@@ -78,8 +139,8 @@ pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
         }
     }
 
-    // get_fft(f.len()).process(&mut f);
-    let mut f = vec![Complex32::default(); n/2+1];
+    f.resize(n/2+1, Complex32::default());
+    
     // SAFTY: process returns error only if e and f have wrong length.
     get_fft(e.len()).process(&mut e, &mut f).unwrap();
 
@@ -95,11 +156,13 @@ pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
         .iter()
         .map(|x| if (x.abs() as f64) < t / 2.0 { 1 } else { 0 })
         .sum::<i64>();
-
+    
+    
     let d = (n1 as f64 - n0) / sqrt(n as f64 * 0.95 * 0.05 / 3.8);
     let pv = erfc(abs(d) / sqrt(2.0));
     let qv = erfc(d / sqrt(2.0)) / 2.0;
-
+    
+    put_vec((e,f));
     TestResult { pv, qv }
 }
 

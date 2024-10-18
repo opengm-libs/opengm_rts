@@ -97,10 +97,33 @@ pub(crate) fn rank_u8(sample: &Sample) -> TestResult {
     TestResult { pv, qv: pv }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Matrix {
     m: [u32; MATRIX_DIM],
 }
+
+impl From<&[u8]> for Matrix{
+    fn from(value: &[u8]) -> Self {
+        let mut m = [0u32;MATRIX_DIM];
+
+        for i in 0..32{
+            m[i] = u32::from_be_bytes(value[i*4..(i+1)*4].try_into().unwrap());
+        }
+        Matrix{m}
+    }
+}
+
+impl From<&Vec<u8>> for Matrix{
+    fn from(value: &Vec<u8>) -> Self {
+        let mut m = [0u32;MATRIX_DIM];
+
+        for i in 0..32{
+            m[i] = u32::from_be_bytes(value[i*4..(i+1)*4].try_into().unwrap());
+        }
+        Matrix{m}
+    }
+}
+
 
 impl Matrix {
     #[inline(always)]
@@ -114,7 +137,7 @@ impl Matrix {
     #[inline(always)]
     fn from_slice_u8(&mut self, m: &[u8]) {
         for i in 0..32{
-            self.m[i] = u32::from_be_bytes(m[i*4..(i+1)*4].try_into().unwrap());
+            self.m[i] = u32::from_ne_bytes(m[i*4..(i+1)*4].try_into().unwrap());
         }
     }
 
@@ -143,22 +166,24 @@ impl Matrix {
     // assume [i,j] = 0
     // find a nonzero row k > i which at column index j and swap with j.
     // if find and swap such row, return true.
-    fn find_and_swap_row(&mut self, i: usize, j: usize) -> bool {
+    #[inline(always)]
+    fn find_and_swap_row(&mut self, i: usize, maskj: u32) -> bool {
         for k in (i + 1)..MATRIX_DIM {
-            if self.get(k, j) != 0 {
+            if self.m[k] & maskj != 0{
                 self.swap_row(k, i);
                 return true;
             }
         }
         false
     }
-
+    #[inline(always)]
     fn compute_rank(&mut self) -> usize {
         let mut i = 0;
         let mut j = 0;
         while j < MATRIX_DIM {
-            if self.get(i, j) == 0 {
-                if !self.find_and_swap_row(i, j){
+            let mask = 1<<(31-j);
+            if self.m[i] & mask == 0{
+                if !self.find_and_swap_row(i, mask){
                     // move to next column
                     j += 1;
                     continue;
@@ -167,7 +192,7 @@ impl Matrix {
 
             // eleminate
             for k in i + 1..MATRIX_DIM {
-                if self.get(k, j) == 1 {
+                if self.m[k] & mask != 0{
                     self.add_row(k, i); // eleminate row k
                 }
             }
@@ -202,6 +227,7 @@ mod tests {
         assert_eq!(tv1.1, rank_u8(&sample));
     }
 
+
     #[test]
     fn test_equal() {
         for nbits in 250..1000 {
@@ -210,4 +236,49 @@ mod tests {
             assert_eq!(rank_u8(&sample), rank_u64(&sample));
         }
     }
+}
+
+
+#[cfg(test)]
+mod bench {
+    extern crate test;
+    use super::*;
+    use crate::{test_data::E, Sample};
+    use test::Bencher;
+
+
+    #[bench]
+    fn bench_rank_u64(b: &mut Bencher) {
+        let sample: Sample = E.into();
+        // let m = sample.b.into();
+
+        // 6,719.88 ns/iter
+        b.iter(|| {
+            test::black_box(rank_u64(&sample));
+        });
+    }
+
+    #[bench]
+    fn bench_rank_u8(b: &mut Bencher) {
+        let sample: Sample = E.into();
+
+        // 1,889,683.30
+        b.iter(|| {
+            test::black_box(rank_u8(&sample));
+        });
+    }
+
+    #[bench]
+    fn bench_rank(b: &mut Bencher) {
+        let sample: Sample = E.into();
+        let m0:Matrix = (&sample.b).into();
+        let mut m = Matrix::default();
+
+        // 392.75 ns/iter
+        b.iter(|| {
+            m.m.copy_from_slice(&m0.m);
+            test::black_box(m.compute_rank());
+        });
+    }
+
 }
