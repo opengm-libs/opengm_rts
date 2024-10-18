@@ -1,6 +1,6 @@
 use crate::{
     igamc, powi,
-    u500::{Bits, U500},
+    u500::Bits,
     Sample, TestResult,
 };
 
@@ -118,9 +118,7 @@ fn discrepancy<T: Bits, const M: usize>(S: &T, C: &T, N: usize) -> u8 {
 mod tests {
 
     use crate::{
-        test_data::E,
-        testsuits::{linear_complexity_epsilon, tests::get_test_vec_e},
-        u1000::U1000, u5000::U5000,
+        test_data::E, testsuits::linear_complexity_epsilon, u1000::U1000, u500::U500, u5000::U5000
     };
 
     use super::*;
@@ -164,7 +162,7 @@ mod tests {
 mod bench {
     extern crate test;
     use super::*;
-    use crate::{popcount_u64, test_data::E, u1000::U1000, u5000::U5000, Sample};
+    use crate::{popcount_u64, test_data::E, u1000::U1000, u500::U500, u5000::U5000, Sample};
     use test::Bencher;
 
     #[bench]

@@ -278,7 +278,6 @@ mod tests {
 mod bench {
     extern crate test;
     use super::*;
-    use crate::{test_data::E, Sample};
     use test::Bencher;
 
     #[inline(never)]

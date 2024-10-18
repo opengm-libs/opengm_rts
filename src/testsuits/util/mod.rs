@@ -3,6 +3,8 @@ pub mod u500;
 pub mod u1000;
 pub mod u5000;
 
+use std::sync::Arc;
+
 pub(crate) use math::*;
 
 use crate::Sample;
@@ -218,15 +220,15 @@ pub(crate) fn u128_from_be_slice_aligned_right(d: &[u8]) -> u128 {
 // 重叠子序列m的可能取值为(m,m-1,m-2): 0,1,2,3,4,5,6,7
 // 近似熵m可能取值:2,5,7 and 3,6,8
 // 参见:GM/T 0005-2021, 附录A
-pub(crate) fn overlapping_patterns_u8(sample: &Sample, m: usize) -> Vec<u64> {
+pub(crate) fn overlapping_patterns_u8(sample: &Sample, m: usize) -> Arc::<Vec<u64>> {
     assert!(m <= 8);
 
     if m == 0 {
-        return Vec::new();
+        return Arc::new(Vec::new());
     }
 
     if m == 1 {
-        return vec![sample.len() as u64 - sample.pop, sample.pop];
+        return Arc::new(vec![sample.len() as u64 - sample.pop, sample.pop]);
     }
 
     if let Ok(pat) = sample.patterns.lock() {
@@ -268,6 +270,7 @@ pub(crate) fn overlapping_patterns_u8(sample: &Sample, m: usize) -> Vec<u64> {
         x <<= 1;
     }
 
+    let bucket = Arc::new(bucket);
     if let Ok(mut pat) = sample.patterns.lock() {
         if pat.len() <= m {
             pat.resize(m + 1, None);
@@ -312,13 +315,13 @@ fn overlapping_patterns_process_u64(
 // 重叠子序列m的可能取值为(m,m-1,m-2): 0,1,2,3,4,5,6,7
 // 近似熵m可能取值:2,5,7, 3,6,8
 // 参见:GM/T 0005-2021, 附录A
-pub(crate) fn overlapping_patterns_u64(sample: &Sample, M: usize) -> Vec<u64> {
+pub(crate) fn overlapping_patterns_u64(sample: &Sample, M: usize) -> Arc<Vec<u64>> {
     if M == 0 {
-        return Vec::new();
+        return Arc::new(Vec::new());
     }
 
     if M == 1 {
-        return vec![sample.len() as u64 - sample.pop, sample.pop];
+        return Arc::new(vec![sample.len() as u64 - sample.pop, sample.pop]);
     }
 
     if let Ok(pat) = sample.patterns.lock() {
@@ -387,6 +390,7 @@ pub(crate) fn overlapping_patterns_u64(sample: &Sample, M: usize) -> Vec<u64> {
         }
     }
 
+    let bucket = Arc::new(bucket);
     if let Ok(mut pat) = sample.patterns.lock() {
         if pat.len() <= M {
             pat.resize(M + 1, None);

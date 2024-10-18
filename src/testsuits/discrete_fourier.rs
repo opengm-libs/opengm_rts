@@ -5,21 +5,18 @@ use crate::{Sample, TestResult};
 
 use realfft::{RealFftPlanner, RealToComplex};
 use rustfft::{
-    num_complex::{Complex, Complex32, Complex64, ComplexFloat},
-    Fft, FftPlanner,
+    num_complex::{Complex32, ComplexFloat}
 };
 use std::sync::{LazyLock, Mutex};
 
 // a Vec<T> memory pool
-// 内存最多会占用 O(占用线程数 * 测试数据).
-// 1亿比特10线程大概18GB.
-// TODO: 控制内存总量,如果VecPool空了,则返回错误, 样本测试函数执行下一个测试.
-// 使得差不多一半执行线性复杂度检测,一半执行FFT检测.
+// 内存最多会占用 O(线程数 * 测试数据).
 struct VecPool (Vec<(Vec<f32>, Vec<Complex32>)>);
 impl VecPool{
     #[inline]
-    fn new() -> Self {
-        VecPool(Vec::with_capacity(8))
+    const fn new() -> Self {
+        VecPool(Vec::new())
+        // VecPool(Vec::with_capacity(16))
     }
     #[inline]
     fn len(&self)-> usize {
@@ -36,13 +33,9 @@ impl VecPool{
 }
 
 
-static VEC_POOL: LazyLock<Mutex<VecPool>> = 
-    LazyLock::new(|| Mutex::new(VecPool::new()));
+static VEC_POOL: Mutex<VecPool> = Mutex::new(VecPool::new());
 
-// static VEC_POOL_F32: LazyLock<Mutex<VecPool<f32>>> = 
-//     LazyLock::new(|| Mutex::new(VecPool::new()));
-
-// static VEC_POOL_COMPLEX32: LazyLock<Mutex<VecPool<Complex32>>> = 
+// static VEC_POOL: LazyLock<Mutex<VecPool>> = 
 //     LazyLock::new(|| Mutex::new(VecPool::new()));
 
 static FFT_PLANNER: LazyLock<Mutex<RealFftPlanner<f32>>> =

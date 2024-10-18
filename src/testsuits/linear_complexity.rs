@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::mem::swap;
+use std::mem::{self, swap};
 
 // use u1000::U1000;
 // use u500::U500;
@@ -7,11 +7,16 @@ use std::mem::swap;
 use crate::testsuits::util::*;
 use crate::{igamc, powi, Sample, TestResult, USE_U8};
 
-use super::linear_complexity_simd::linear_complexity_simd;
-
 pub(crate) fn linear_complexity(sample: &Sample, m: i32) -> TestResult {
     if USE_U8 {
-        linear_complexity_u8(sample, m)
+        // when compute m = 1000, we are also computed the first half 500
+        // bits's complexity. So we can save half the computation for m = 500
+        // when sample.len() = 1 million.
+        if m == 500 || m == 1000{
+            linear_complexity5001000_u8(sample, m)
+        }else{
+            linear_complexity_u8(sample, m)
+        }
     } else {
         linear_complexity_u64(sample, m)
     }
@@ -267,6 +272,49 @@ pub(crate) fn linear_complexity_u8(sample: &Sample, m: i32) -> TestResult {
     TestResult { pv, qv: pv }
 }
 
+
+/// 线性复杂度检测
+pub(crate) fn linear_complexity5001000_u8(sample: &Sample, m: i32) -> TestResult {
+    // m = 500, 1000, 5000
+    let mut nu = [0; 7];
+    let pi = [0.010417, 0.03125, 0.12500, 0.50000, 0.25000, 0.06250, 0.020833];
+
+    let m = m as usize;
+    let n = sample.bit_length;
+
+    let N = n / m;
+    let sign = if m % 2 == 0 { 1.0 } else { -1.0 }; // -1^m
+    let mean = m as f64 / 2.0 + (9.0 - sign) / 36.0 - 1.0 / powi(2.0, m as i32) * (m as f64 / 3.0 + 2.0 / 9.0);
+    let complexity = get_complexity(sample, m);
+    for L in complexity {
+        let L = L as f64;
+        let t = sign * (L - mean) + 2.0 / 9.0;
+
+        if t <= -2.5 {
+            nu[0] += 1;
+        } else if t > -2.5 && t <= -1.5 {
+            nu[1] += 1;
+        } else if t > -1.5 && t <= -0.5 {
+            nu[2] += 1;
+        } else if t > -0.5 && t <= 0.5 {
+            nu[3] += 1;
+        } else if t > 0.5 && t <= 1.5 {
+            nu[4] += 1;
+        } else if t > 1.5 && t <= 2.5 {
+            nu[5] += 1;
+        } else {
+            nu[6] += 1;
+        }
+    }
+    let mut chi2 = 0.00;
+    for (v, p) in core::iter::zip(nu, pi) {
+        let np = N as f64 * p;
+        chi2 += powi(v as f64 - np, 2) / np;
+    }
+    let pv = igamc(3.0, chi2 / 2.0);
+    TestResult { pv, qv: pv }
+}
+
 /// 线性复杂度检测
 pub(crate) fn linear_complexity_u64(sample: &Sample, m: i32) -> TestResult {
     // m = 500, 1000, 5000
@@ -413,6 +461,152 @@ fn berlekamp_massey_u64(S: &[u64], leadingzeros: usize, nbits: usize) -> usize {
     L
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+// only for m = 500 or 1000
+fn get_complexity(sample: &Sample, m: usize) -> Vec<u16> {
+    if let Ok(mut complexities) = sample.complexities.lock() {
+        if let Some(v) = &mut complexities[m / 500 - 1] {
+            return mem::take(v);
+        }
+    }
+
+    let (complexity500, complexity1000) = compute_complexity_1000(sample);
+
+    if let Ok(mut complexities) = sample.complexities.lock() {
+        if m == 500 {
+            complexities[1] = Some(complexity1000);
+            return complexity500;
+        }else{
+            complexities[0] = Some(complexity500);
+            return complexity1000;
+        }
+    }else{
+        unreachable!()
+    }
+
+}
+
+// compute the complexities for m = 500, 1000
+fn compute_complexity_1000(sample: &Sample) -> (Vec<u16>, Vec<u16>) {
+    let n = sample.len();
+
+    // assume n mod 1000 < 500, that is N500 = 2N1000.
+    let N500 = n / 500;
+    let N1000 = n / 1000;
+    debug_assert!(N500 == 2 * N1000);
+
+    let mut complexity500 = Vec::with_capacity(N500);
+    let mut complexity1000 = Vec::with_capacity(N1000);
+
+    let b8 = &sample.b;
+    let mut S = vec![0; 17]; // 16*64 = 1024
+    for i in 0..N1000 {
+        let leadingzeros = extract_borrowed_u8(&mut S, b8, i * 1000, 1000);
+        let (l1, l2, l3) = berlekamp_massey1000_u64(&S, leadingzeros, 1000);
+        complexity500.push(l1 as u16);
+        complexity500.push(l2 as u16);
+        complexity1000.push(l3 as u16);
+    }
+    return (complexity500, complexity1000);
+}
+
+// Find L(S) where S start from pos leadingzeros, with nbits bits.
+// the special case nbits = 1000, returns
+// the first L(S[..500]) and L(S)
+fn berlekamp_massey2_u64(S: &[u64], leadingzeros: usize, nbits: usize) -> (usize, usize) {
+    let length = S.len();
+    let mut C: Vec<u64> = vec![0; length]; // C is in reverse order, right aligned.
+    let mut B: Vec<u64> = vec![0; length];
+    let mut T: Vec<u64> = vec![0; length];
+
+    let mut L = 0;
+    let mut m: i32 = -1;
+
+    // C[D] = 1
+    C[length - 1] = 1;
+    B[length - 1] = 1;
+    let mut blen = 1;
+
+    let mut N = 0;
+    let mut res1 = 0;
+    while N < nbits {
+        if N == nbits / 2 {
+            res1 = L;
+        }
+        let d = discrepancy_u64(&S, leadingzeros, &C, N, L);
+        if d == 1 {
+            // T(D) = C(D)
+            T[length - (L + 64) / 64..].copy_from_slice(&C[length - (L + 64) / 64..]);
+            // tlen = L+1;
+
+            // C(D) = C(D) + B(D)*D^{N-m}
+            let e = (N as i32 - m) as usize;
+            // add_shift_u64(&mut C, &B, e);
+            // deg(C) = L
+            add_shift_u64_with_length(&mut C, &B, e, L + 1, blen);
+
+            if L <= N / 2 {
+                // B.copy_from_slice(&T);
+                swap(&mut B, &mut T);
+                blen = L + 1;
+                m = N as i32;
+                L = N + 1 - L;
+            }
+        }
+        N += 1;
+    }
+    (res1, L)
+}
+
+// Find L(S) where S start from pos leadingzeros, with nbits bits.
+// the special case nbits = 1000, returns L(S[..500]) L(S[500..]) and L(S)
+fn berlekamp_massey1000_u64(S: &[u64], leadingzeros: usize, nbits: usize) -> (usize, usize, usize) {
+    let length = S.len();
+    let mut C: Vec<u64> = vec![0; length]; // C is in reverse order, right aligned.
+    let mut B: Vec<u64> = vec![0; length];
+    let mut T: Vec<u64> = vec![0; length];
+
+    let mut L = 0;
+    let mut m: i32 = -1;
+
+    // C[D] = 1
+    C[length - 1] = 1;
+    B[length - 1] = 1;
+    let mut blen = 1;
+
+    let mut N = 0;
+    let mut res1 = 0;
+    while N < nbits {
+        if N == nbits / 2 {
+            res1 = L;
+        }
+        let d = discrepancy_u64(&S, leadingzeros, &C, N, L);
+        if d == 1 {
+            // T(D) = C(D)
+            T[length - (L + 64) / 64..].copy_from_slice(&C[length - (L + 64) / 64..]);
+            // tlen = L+1;
+
+            // C(D) = C(D) + B(D)*D^{N-m}
+            let e = (N as i32 - m) as usize;
+            // add_shift_u64(&mut C, &B, e);
+            // deg(C) = L
+            add_shift_u64_with_length(&mut C, &B, e, L + 1, blen);
+
+            if L <= N / 2 {
+                // B.copy_from_slice(&T);
+                swap(&mut B, &mut T);
+                blen = L + 1;
+                m = N as i32;
+                L = N + 1 - L;
+            }
+        }
+        N += 1;
+    }
+    let res2 = berlekamp_massey_u64(&S[(leadingzeros + 500)/64..], (leadingzeros + 500) % 64, 500);
+    (res1, res2, L)
+}
+
 // d = C_0S_N + C_1S_{N-1} + ... + C_LS_{N-L} % 2
 #[inline(always)]
 fn discrepancy_u64(S: &[u64], s_start: usize, C: &[u64], N: usize, L: usize) -> u8 {
@@ -541,7 +735,7 @@ mod tests {
             println!("{}", m);
             // FIXME: panic when m = 5000
             let c = linear_complexity_epsilon(&sample, m);
-            let a = linear_complexity_u8(&sample, m);
+            let a = linear_complexity(&sample, m);
             // let b = linear_complexity_u64(&sample, m);
 
             // assert_eq!(a,b);
@@ -556,6 +750,19 @@ mod tests {
             let res = linear_complexity_u8(&sample, param);
             assert_eq!(res, linear_complexity_epsilon(&sample, param));
         }
+    }
+
+    #[test]
+    fn test_berlekamp_massey2() {
+        let sample: Sample = E.into();
+        let mut S = vec![0; (1000 + 63) / 64 + 1];
+        let start = 100;
+        let leading_zeros = extract_borrowed_u8(&mut S, &sample.b, start, 1000);
+        let (l1, l2) = berlekamp_massey2_u64(&S, leading_zeros, 1000);
+        let leading_zeros = extract_borrowed_u8(&mut S, &sample.b, start, 500);
+        let l3 = berlekamp_massey_u64(&S, leading_zeros, 500);
+        assert_eq!(l1, l3);
+        println!("{} {} {}", l1, l2, l3);
     }
 }
 
@@ -588,7 +795,7 @@ mod bench {
         b.iter(|| {
             // test::black_box(linear_complexity_u8(&sample, 500));
             // test::black_box(linear_complexity_u8(&sample, 1000));
-            test::black_box(linear_complexity_u8(&sample, 5000));
+            test::black_box(linear_complexity_u8(&sample, 1000));
         });
     }
 

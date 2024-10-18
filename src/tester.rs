@@ -1,5 +1,3 @@
-use rand::{thread_rng, RngCore};
-// Commbined test suites
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -87,13 +85,13 @@ pub const ALL_TESTS_FUNCS: &[TestFuncs] = &[
     TestFuncs::LongestRun1,
     TestFuncs::BinaryDerivative,
     TestFuncs::Autocorrelation,
-    TestFuncs::Rank,
-    TestFuncs::CumulativeSumsForward,
+    TestFuncs::Rank, // 0.2
+    TestFuncs::CumulativeSumsForward, // 0.1
     TestFuncs::CumulativeSumsBackward,
-    TestFuncs::ApproximateEntropy,
-    TestFuncs::LinearComplexity,
-    TestFuncs::Universal,
-    TestFuncs::DiscreteFourier,
+    TestFuncs::ApproximateEntropy,//0.2
+    TestFuncs::LinearComplexity, // 2.5
+    TestFuncs::Universal, // 0.1
+    TestFuncs::DiscreteFourier,//1.1
 ];
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -205,7 +203,7 @@ pub fn waterline(alpha: f64, s: usize) -> usize {
 }
 
 
-fn sample_test(s: &Sample, testers: &[Tester]) -> HashMap<Tester, TestResult> {
+pub fn sample_test(s: &Sample, testers: &[Tester]) -> HashMap<Tester, TestResult> {
     let mut result = HashMap::<Tester, TestResult>::new();
 
     let reverse = if USE_U8 { (s.b[0] & 1) == 0 } else { (s.b64[0] & 1) == 0 };
@@ -248,7 +246,7 @@ pub fn count_pvalue_pass(res: &Vec<HashMap<Tester, TestResult>>, f: Tester, alph
     res.iter().map(|t| if t[&f].pass(alpha) { 1 } else { 0 }).sum()
 }
 
-fn compute_qvalue_distribution(res: &Vec<HashMap<Tester, TestResult>>, f: Tester) -> f64 {
+pub fn compute_qvalue_distribution(res: &Vec<HashMap<Tester, TestResult>>, f: Tester) -> f64 {
     let mut qvalues = Vec::with_capacity(res.len() * 2);
 
     for r in res {
@@ -267,7 +265,7 @@ pub fn read_dir(current_dir: &str) -> Result<Vec<Sample>> {
         let metadata = fs::metadata(&path)?;
         if metadata.is_file() {
             if let Ok(content) = fs::read(path) {
-                result.push(Sample::from(content.as_slice()));
+                result.push(Sample::from(content));
             }
         }
     }
@@ -275,12 +273,11 @@ pub fn read_dir(current_dir: &str) -> Result<Vec<Sample>> {
     Ok(result)
 }
 
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
-
-    use rand::RngCore;
-
+    use rand::prelude::*;
     use super::*;
 
     // cargo test --release --package opengm_rts --lib -- tester::tests::test_rts --exact --show-output

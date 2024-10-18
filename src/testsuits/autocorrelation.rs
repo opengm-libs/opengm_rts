@@ -1,4 +1,4 @@
-use super::{util::*, super::USE_U8};
+use super::{super::USE_U8, util::*};
 use crate::{Sample, TestResult};
 
 /// 自相关检测
@@ -57,8 +57,7 @@ pub(crate) fn autocorrelation_u64(sample: &Sample, d: i32) -> TestResult {
             sum += x.count_ones() as u64;
         }
 
-        let mut x = b64[b64.len() - 2]
-            ^ ((b64[b64.len() - 2] << d) | (b64[b64.len() - 1] >> (64 - d)));
+        let mut x = b64[b64.len() - 2] ^ ((b64[b64.len() - 2] << d) | (b64[b64.len() - 1] >> (64 - d)));
         // clear the tail bits
         x >>= d - (n % 64);
         sum += x.count_ones() as u64;
@@ -82,27 +81,38 @@ pub(crate) fn autocorrelation_u8(sample: &Sample, d: i32) -> TestResult {
 
     let mut sum = 0;
 
-    let full_chunks = b8.len() & (!7);
-    let mut x = u64::from_be_bytes((&b8[..8]).try_into().unwrap());
-    for chunk in b8[8..full_chunks].chunks_exact(8) {
-        let y = u64::from_be_bytes(chunk.try_into().unwrap());
-
+    // iterator bench will more faster: 4,969.89 ns/iter
+    let mut iter = sample.iter_u64();
+    let mut x = iter.next().unwrap();
+    for y in iter {
         // x || y
         let z = x ^ ((x << d) | (y >> (64 - d)));
         sum += z.count_ones() as u64;
-
         x = y;
     }
+    let (tail, tail_bits) = sample.tail_u64();
 
-    // leave x || tail to go
-    let tail = if full_chunks < b8.len() {
-        u64_from_be_slice(&b8[full_chunks..])
-    } else {
-        0
-    };
+    // 5,608.38 ns/iter 
+    // let full_chunks = b8.len() & (!7);
+    // let mut x = u64::from_be_bytes((&b8[..8]).try_into().unwrap());
+    // for chunk in b8[8..full_chunks].chunks_exact(8) {
+    //     let y = u64::from_be_bytes(chunk.try_into().unwrap());
 
-    // 0 <= tail_bits < 64
-    let tail_bits = (b8.len() - full_chunks) * 8;
+    //     // x || y
+    //     let z = x ^ ((x << d) | (y >> (64 - d)));
+    //     sum += z.count_ones() as u64;
+
+    //     x = y;
+    // }
+
+    // // leave x || tail to go
+    // let tail = if full_chunks < b8.len() {
+    //     u64_from_be_slice(&b8[full_chunks..])
+    // } else {
+    //     0
+    // };
+    // // 0 <= tail_bits < 64
+    // let tail_bits = (b8.len() - full_chunks) * 8;
 
     // 64-K <= bits_to_go < 128 - K
     let bits_to_go = 64 + tail_bits - d;
@@ -160,16 +170,46 @@ mod tests {
         for nbits in 128 / 8..1000 {
             let sample: Sample = E[..nbits * 8].into();
             for d in [1, 2, 4, 8, 16, 32] {
-                assert_eq!(
-                    autocorrelation_epsilon(&sample, d),
-                    autocorrelation_u64(&sample, d)
-                );
+                assert_eq!(autocorrelation_epsilon(&sample, d), autocorrelation_u64(&sample, d));
 
-                assert_eq!(
-                    autocorrelation_u8(&sample, d),
-                    autocorrelation_u64(&sample, d)
-                );
+                assert_eq!(autocorrelation_u8(&sample, d), autocorrelation_u64(&sample, d));
             }
         }
+    }
+}
+
+
+
+#[cfg(test)]
+mod bench {
+    extern crate test;
+    use super::*;
+    use crate::{test_data::E, Sample};
+    use test::Bencher;
+
+    #[bench]
+    fn bench_u64(b: &mut Bencher) {
+        let sample: Sample = E.into();
+        b.iter(|| {
+            test::black_box(autocorrelation_u64(&sample, 16));
+        });
+    }
+
+    #[bench]
+    fn bench_u8(b: &mut Bencher) {
+        let sample: Sample = E.into();
+
+        // m=16: 4,952.14 ns/iter
+        b.iter(|| {
+            test::black_box(autocorrelation_u8(&sample, 16));
+        });
+    }
+
+    #[bench]
+    fn bench_test_epsilon(b: &mut Bencher) {
+        let sample: Sample = E.into();
+        b.iter(|| {
+            test::black_box(autocorrelation_epsilon(&sample, 16));
+        });
     }
 }

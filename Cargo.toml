@@ -1,6 +1,6 @@
 [package]
 name = "opengm_rts"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["The OpenGM Group <opengm at yeah.net>"]
 description = "GM/T 0005-2021 randomness test suits written in Rust."
@@ -8,7 +8,7 @@ keywords = [
     "randomness",
     "opengm"
 ]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/opengm-libs/opengm_rts"
 
 [dependencies]
@@ -16,15 +16,17 @@ libm = "0.2"
 rustfft = "6.2"
 realfft = "3.4"
 rayon = {version = "1.10", optional = true}
-rand = {version = "0.8", optional = true}
 
-phastft = "0.2"
-# fftw = "0.8"
+[dev-dependencies]
+rand = {version = "0.8"}
+
 
 [features]
 default = ["build-binary"]
-build-binary = ["rayon", "rand"]
+build-binary = ["rayon"]
 
+[profile.release]
+panic = "abort"
 
 [[bin]]
 name = "opengm_rts"

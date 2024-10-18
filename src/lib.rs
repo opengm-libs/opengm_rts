@@ -1,15 +1,16 @@
 #![allow(dead_code)]
-#![allow(unused_imports)]
 #![allow(non_snake_case)]
 #![feature(test)]
 #![feature(portable_simd)]
+// #![allow(unused_imports)]
 
 mod tester;
 mod testsuits;
-use std::{slice::Iter, sync::Mutex};
-
+use std::sync::Mutex;
+use std::sync::Arc;
 pub use tester::*;
 use testsuits::util::*;
+
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum TestFuncs {
@@ -54,6 +55,7 @@ impl TestResult {
 const MAX_OVERLAPPING_PATTERN: usize = 8;
 const USE_U8: bool = true;
 
+
 pub struct Sample {
     // Note: for a byte x, bit 0 is (x>>7) & 1 and bit 7 is x & 1.
     b: Vec<u8>,
@@ -73,7 +75,13 @@ pub struct Sample {
     pop: u64,
 
     // 重叠子序列和近似熵
-    patterns: Mutex<Vec<Option<Vec<u64>>>>,
+    patterns: Mutex<Vec<Option<Arc<Vec<u64>>>>>,
+
+    // 线性复杂度
+    complexities: Mutex<Vec<Option<Vec<u16>>>>,
+
+    // 最大游程
+    longest_run: Mutex<Option<[f64;2]>>,
 }
 
 fn u64_from(b: &[u8]) -> Vec<u64> {
@@ -137,6 +145,8 @@ impl From<&str> for Sample {
             e: e,
             pop: pop,
             patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN + 1]),
+            complexities: Mutex::new(vec![None;2]),
+            longest_run: Mutex::new(None),
         }
     }
 }
@@ -169,6 +179,46 @@ impl From<&[u8]> for Sample {
             e,
             pop: popcount_u8(&byte_slice),
             patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN + 1]),
+            complexities: Mutex::new(vec![None; 2]),
+            longest_run: Mutex::new(None),
+        }
+    }
+}
+
+
+// move vec into sample
+impl From<Vec<u8>> for Sample {
+    fn from(v: Vec<u8>) -> Self {
+        let bit_length = v.len() * 8;
+        #[cfg(test)]
+        let e = {
+            let mut e = Vec::with_capacity(v.len() * 8);
+            for c in &v {
+                for j in 0..8 {
+                    e.push((*c >> (7 - j)) & 1)
+                }
+            }
+            e
+        };
+
+        #[cfg(test)]
+        let b64 = u64_from(&v);
+        #[cfg(not(test))]
+        let b64 = if USE_U8 { Vec::new() } else { u64_from(&v) };
+
+        let pop = popcount_u8(&v);
+        let b = if USE_U8 { v } else { Vec::new() };
+
+        Sample {
+            b,
+            bit_length,
+            b64,
+            #[cfg(test)]
+            e,
+            pop,
+            patterns: Mutex::new(vec![None; MAX_OVERLAPPING_PATTERN + 1]),
+            complexities: Mutex::new(vec![None; 2]),
+            longest_run: Mutex::new(None),
         }
     }
 }
@@ -279,7 +329,66 @@ impl Sample {
     pub fn discrete_fourier(&self) -> TestResult {
         testsuits::discrete_fourier(self)
     }
+
+    fn iter_u64(&self) -> U8Iterator{
+        U8Iterator::new(&self.b)
+    }
+
+    fn tail_u64(&self) -> (u64, usize){
+        tail_u64(&self.b)
+    }
 }
+
+
+#[inline(always)]
+pub(crate) fn tail_u64(b:&[u8]) -> (u64, usize){
+    let tail_bits_length = (b.len() % 8) * 8;
+    if tail_bits_length == 0{
+        return (0, 0);
+    }
+    let length = b.len();
+    let tail = u64_from_be_slice(&b[length & (!7)..]);
+    (tail, tail_bits_length)
+
+}
+
+// U8Iterator iterates over a &[u8] with returned item u64
+pub(crate) struct U8Iterator<'a>{
+    curr: usize,
+    b: &'a [u8]
+}
+impl<'a> U8Iterator<'a>{
+    fn new(b: &'a [u8])-> Self{
+        U8Iterator{
+            curr: 0,
+            b
+        }
+    }
+    fn tail(&self) -> (u64, usize){
+        let tail_bits_length = (self.b.len() % 8) * 8;
+        if tail_bits_length == 0{
+            return (0, 0);
+        }
+        let length = self.b.len();
+        let tail = u64_from_be_slice(&self.b[length & (!7)..]);
+        (tail, tail_bits_length)
+    }
+}
+
+impl<'a> Iterator for U8Iterator<'a>{
+    type Item = u64;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr + 8 <= self.b.len(){
+            let r = u64::from_be_bytes(self.b[self.curr..self.curr+8].try_into().unwrap());
+            self.curr += 8;
+            return Some(r);
+        }
+        None
+    }
+}
+
 
 /// GM/T 0005-2021, 6.3 样本分布均匀性判定
 /// The value of qv[i] should distribute formally in [0,1].
@@ -304,6 +413,11 @@ pub fn qvalue_distribution(qv: &[f64], k: usize) -> f64 {
     igamc((k - 1) as f64 / 2.0, V / 2.0)
 }
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const LICENSE: &str = "Copyright (c) 2024 The OpenGM Group <opengm@yeah.net>";
+
+
+
 #[cfg(test)]
 mod test_data;
 
@@ -313,6 +427,7 @@ pub mod tests {
     use super::*;
     use rand::RngCore;
     use std::collections::HashMap;
+    use std::fs;
     use std::time::Instant;
 
     // Test for all 15 test functions.
@@ -430,73 +545,98 @@ pub mod tests {
         }
         let mut pv = HashMap::new();
 
-        // total: 74.3s
+        // total: 35.769053
         let start = Instant::now();
         for sample in samples {
-            // 0s
+            // // 0s
             // pv.insert(TestFuncs::Frequency, sample.frequency());
 
-            // 0.01
+            // // 0.01
             // pv.insert(TestFuncs::BlockFrequency, sample.block_frequency(10000));
 
-            // 0.09
+            // // 0.09
             // pv.insert(TestFuncs::Poker, sample.poker(8));
 
-            // 1.10 s
+            // // 1.10 s
             // pv.insert(TestFuncs::Serial1, sample.serial1(7));
             // pv.insert(TestFuncs::Serial2, sample.serial2(7));
 
-            // 0.02 s
+            // // 0.02 s
             // pv.insert(TestFuncs::Runs, sample.runs());
 
-            // 0.98 s
+            // // 0.98 s
             // pv.insert(TestFuncs::RunsDistribution, sample.runs_distribution());
 
-            // 0.96s - TODO
+            // // 0.96s - TODO
             // pv.insert(TestFuncs::LongestRun0, sample.longest_run0());
             // pv.insert(TestFuncs::LongestRun1, sample.longest_run1());
 
-            // 0.83s, 0.04 s
+            // // 0.83s, 0.04 s
             // pv.insert(TestFuncs::BinaryDerivative, sample.binary_derivative(7));
 
-            // 0.65s, 0.02s
+            // // 0.65s, 0.02s
             // pv.insert(TestFuncs::Autocorrelation, sample.autocorrelation(8));
 
-            // 6.67s -> 1.89 s
+            // // 6.67s -> 1.89 s
             // pv.insert(TestFuncs::Rank, sample.rank());
 
-            // 1s
+            // // 1s
             // pv.insert(
             //     TestFuncs::CumulativeSumsForward,
             //     sample.cumulative_sums_forward(),
             // );
 
-            // 1s
+            // // 1s
             // pv.insert(
             //     TestFuncs::CumulativeSumsBackward,
             //     sample.cumulative_sums_backward(),
             // );
 
-            // 0.94s
+            // // 0.94s
             // pv.insert(
             //     TestFuncs::ApproximateEntropy,
             //     sample.approximate_entropy(5),
             // );
 
-            // m=1000:16.975644 s
-            // m=500:12.231s
+            // // m=1000:16.975644 s
+            // // m=500:12.231s
             // pv.insert(
             //     TestFuncs::LinearComplexity,
             //     sample.linear_complexity(500),
             // );
 
-            // 0.58s - TODO
-            // pv.insert(TestFuncs::Universal, sample.universal());
+            // pv.insert(
+            //     TestFuncs::LinearComplexity,
+            //     sample.linear_complexity(1000),
+            // );
 
-            // 25.199296 s(rustFFT)
-            // 12.091892 s(realFFT)
-            pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
+            // // 0.58s - TODO
+            pv.insert(TestFuncs::Universal, sample.universal());
+
+            // // 25.199296 s(rustFFT)
+            // // 12.091892 s(realFFT)
+            // pv.insert(TestFuncs::DiscreteFourier, sample.discrete_fourier());
         }
         println!("total: {:.6} s", (Instant::now() - start).as_secs_f64());
+    }
+
+    #[test]
+    fn test_iter() {
+        let sample: Sample = E[..1000].into();
+        for (i, x) in sample.iter_u64().enumerate(){
+            println!("{}: {:016x} ", i, x);
+        }
+        println!("tail: {:016x}, {}", sample.tail_u64().0, sample.tail_u64().1);
+
+    }
+
+    #[test]
+    fn test_1ybits(){
+        let data = fs::read("data1y.bin").unwrap();
+        let bits = data.len()*8;
+        let sample = Sample::from(data);
+        let result = sample_test(&sample, &get_testers(ALL_TESTS_FUNCS, bits));
+        println!("{:#?}", result)
+
     }
 }

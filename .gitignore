@@ -5,3 +5,4 @@ Cargo.lock
 /.cargo
 /dist
 /data1y
+.data1y

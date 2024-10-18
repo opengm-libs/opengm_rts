@@ -1,5 +1,5 @@
-use super::{util::*, super::USE_U8};
-use crate::{Sample, TestResult};
+use super::{super::USE_U8, util::*};
+use crate::{Sample, TestResult, U8Iterator};
 
 // Note: for k = 2^n - 1, ei = epsilon[i]^epsilon[i+1]^epsilon[i+2]^... ^epsilon[i+k]
 //  0: 0        1        2         3          4          5         6  ...
@@ -79,10 +79,7 @@ pub(crate) fn binary_derivative_epsilon(sample: &Sample, k: i32) -> TestResult {
 
 ////////////////////////////////////////////////////////////////
 
-fn cumulate_binary_derivative_u64<const K: usize>(
-    b64: &[u64],
-    n: usize,
-) -> u64 {
+fn cumulate_binary_derivative_u64<const K: usize>(b64: &[u64], n: usize) -> u64 {
     let mut sum = 0;
 
     if (n - 1) % 64 >= K {
@@ -163,12 +160,10 @@ fn cumulate_binary_derivative_u8<const K: usize>(b8: &[u8], _: usize) -> u64 {
 
     let mut sum = 0;
 
-    let full_chunks = b8.len() & (!7);
-    let mut x = u64::from_be_bytes((&b8[..8]).try_into().unwrap());
-    for chunk in b8[8..full_chunks].chunks_exact(8) {
-        let y = u64::from_be_bytes(chunk.try_into().unwrap());
-
-        // x || y
+    let mut iter = U8Iterator::new(b8);
+    let (tail, tail_bits) = iter.tail();
+    let mut x = iter.next().unwrap();
+    for y in iter {
         let mut z = x;
         for j in 1..=K {
             z ^= (x << j) | (y >> (64 - j));
@@ -178,15 +173,30 @@ fn cumulate_binary_derivative_u8<const K: usize>(b8: &[u8], _: usize) -> u64 {
         x = y;
     }
 
-    // leave x || tail to go
-    let tail = if full_chunks < b8.len() {
-        u64_from_be_slice(&b8[full_chunks..])
-    } else {
-        0
-    };
+    // let full_chunks = b8.len() & (!7);
+    // let mut x = u64::from_be_bytes((&b8[..8]).try_into().unwrap());
+    // for chunk in b8[8..full_chunks].chunks_exact(8) {
+    //     let y = u64::from_be_bytes(chunk.try_into().unwrap());
 
-    // 0 <= tail_bits < 64
-    let tail_bits = (b8.len() - full_chunks) * 8;
+    //     // x || y
+    //     let mut z = x;
+    //     for j in 1..=K {
+    //         z ^= (x << j) | (y >> (64 - j));
+    //     }
+    //     sum += z.count_ones() as u64;
+
+    //     x = y;
+    // }
+
+    // // leave x || tail to go
+    // let tail = if full_chunks < b8.len() {
+    //     u64_from_be_slice(&b8[full_chunks..])
+    // } else {
+    //     0
+    // };
+
+    // // 0 <= tail_bits < 64
+    // let tail_bits = (b8.len() - full_chunks) * 8;
 
     // 64-K <= bits_to_go < 128 - K
     let bits_to_go = 64 + tail_bits - K;
@@ -272,14 +282,8 @@ mod tests {
         for nbits in 16..2000 {
             let sample: Sample = E[..nbits * 8].into();
             for k in [3, 7, 15] {
-                assert_eq!(
-                    binary_derivative_epsilon(&sample, k),
-                    binary_derivative_u64(&sample, k)
-                );
-                assert_eq!(
-                    binary_derivative_u64(&sample, k),
-                    binary_derivative_u8(&sample, k)
-                );
+                assert_eq!(binary_derivative_epsilon(&sample, k), binary_derivative_u64(&sample, k));
+                assert_eq!(binary_derivative_u64(&sample, k), binary_derivative_u8(&sample, k));
             }
         }
     }
@@ -324,7 +328,7 @@ mod bench {
     fn bench_test_u8(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // K = 3:  8,117.72 ns/iter
+        // K = 3:   8,125.13 ns/iter
         // K = 7: 35,166.07 ns/iter
         // K = 15: 75,817.23 ns/iter
         b.iter(|| {

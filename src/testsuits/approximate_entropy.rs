@@ -93,11 +93,11 @@ pub(crate) fn approximate_entropy_u64(sample: &Sample, m: i32) -> TestResult {
 fn phi_u64(sample: &Sample, m: i32) -> f64 {
     let patterns = overlapping_patterns_u64(sample, m as usize);
     let mut sum = 0.0;
-    for x in patterns {
-        if x == 0 {
+    for x in patterns.iter() {
+        if *x == 0 {
             continue;
         }
-        let c = x as f64 / sample.bit_length as f64;
+        let c = *x as f64 / sample.bit_length as f64;
         sum += c * ln(c);
     }
     sum
@@ -122,11 +122,11 @@ pub(crate) fn approximate_entropy_u8(sample: &Sample, m: i32) -> TestResult {
 fn phi_u8(sample: &Sample, m: i32) -> f64 {
     let patterns = overlapping_patterns_u8(sample, m as usize);
     let mut sum = 0.0;
-    for x in patterns {
-        if x == 0 {
+    for x in patterns.iter() {
+        if *x == 0 {
             continue;
         }
-        let c = x as f64 / sample.bit_length as f64;
+        let c = *x as f64 / sample.bit_length as f64;
         sum += c * ln(c);
     }
     sum
