@@ -1,16 +1,16 @@
-use opengm_rts::*;
 use std::{
     collections::HashMap,
     sync::{mpsc, Arc, Mutex},
     thread,
 };
-// The ThreadPool from ch20 of the book
 
+use crate::{TestResult, Tester};
+
+// The ThreadPool from ch20 of the book
 pub struct ThreadPool {
     #[allow(dead_code)]
     workers: Option<Vec<Worker>>,
     job_sender: mpsc::SyncSender<Job>,
-    // result_receiver: mpsc::Receiver<HashMap<Tester, TestResult>>,
 }
 
 type Job = Box<dyn FnOnce() -> HashMap<Tester, TestResult> + Send + 'static>;
@@ -48,19 +48,6 @@ impl ThreadPool {
     }
 }
 
-// impl Drop for ThreadPool {
-//     fn drop(&mut self) {
-//         for _ in 0..self.workers.as_ref().unwrap().len() {
-//             self.sender.send(Job::Terminate).unwrap();
-//         }
-
-//         let workers = self.workers.take().unwrap();
-//         for worker in workers {
-//             println!("Shutting down worker {}", worker.id);
-//             worker.thread.join().unwrap();
-//         }
-//     }
-// }
 
 #[allow(dead_code)]
 struct Worker {
@@ -97,8 +84,9 @@ mod tests {
         time::Instant,
     };
 
-    use opengm_rts::{get_testers, sample_test, Sample, ALL_TESTS_FUNCS};
     use rand::RngCore;
+
+    use crate::{get_testers, sample_test, Sample, ALL_TESTS_FUNCS};
 
     use super::ThreadPool;
 

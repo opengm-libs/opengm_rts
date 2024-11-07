@@ -90,8 +90,6 @@ fn main() {
 
     let num_cpus = thread::available_parallelism().unwrap().get();
 
-    // The statistics threads pool.
-    let (pool, result_receiver) = ThreadPool::new(num_cpus);
 
     let paths = match read_dir(data_dir) {
         Ok(path) => path,
@@ -108,6 +106,9 @@ fn main() {
     let bits = (paths[0].1 * 8) as usize;
     let w = waterline(ALPHA, n);
 
+    // The statistics threads pool.
+    let (pool, result_receiver) = ThreadPool::new(num_cpus);
+    
     // The reading thread
     thread::spawn(move || {
         for path in paths {

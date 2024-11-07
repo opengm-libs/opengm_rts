@@ -1,8 +1,6 @@
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::fs;
-use std::io::Result;
+use rayon::prelude::*;
 
 use crate::Sample;
 use crate::*;
@@ -220,6 +218,22 @@ pub fn sample_test(s: &Sample, testers: &[Tester]) -> HashMap<Tester, TestResult
     return result;
 }
 
+// let line = waterline(ALPHA, samples.len());
+pub fn count_pvalue_pass(res: &Vec<HashMap<Tester, TestResult>>, f: Tester, alpha: f64) -> i32 {
+    res.iter().map(|t| if t[&f].pass(alpha) { 1 } else { 0 }).sum()
+}
+
+pub fn compute_qvalue_distribution(res: &Vec<HashMap<Tester, TestResult>>, f: Tester) -> f64 {
+    let mut qvalues = Vec::with_capacity(res.len() * 2);
+
+    for r in res {
+        let result = &r.get(&f).unwrap();
+        qvalues.push(result.qv);
+    }
+    qvalue_distribution(&qvalues, SAMPLE_DISTRIBUTION_K)
+}
+
+
 // return p_value result and q_value result.
 // p_value result returns [samples[0].Result, samples[1].Result,...]
 // samples[i].Result: Tester: TestResult.
@@ -239,38 +253,6 @@ pub fn randomness_test(samples: &Vec<Sample>, testers: &[Tester]) -> (Vec<HashMa
         qresult.insert(*f, compute_qvalue_distribution(&presult, *f));
     }
     (presult, qresult)
-}
-
-// let line = waterline(ALPHA, samples.len());
-pub fn count_pvalue_pass(res: &Vec<HashMap<Tester, TestResult>>, f: Tester, alpha: f64) -> i32 {
-    res.iter().map(|t| if t[&f].pass(alpha) { 1 } else { 0 }).sum()
-}
-
-pub fn compute_qvalue_distribution(res: &Vec<HashMap<Tester, TestResult>>, f: Tester) -> f64 {
-    let mut qvalues = Vec::with_capacity(res.len() * 2);
-
-    for r in res {
-        let result = &r.get(&f).unwrap();
-        qvalues.push(result.qv);
-    }
-    qvalue_distribution(&qvalues, SAMPLE_DISTRIBUTION_K)
-}
-
-pub fn read_dir(current_dir: &str) -> Result<Vec<Sample>> {
-    let mut result = Vec::new();
-    for entry in fs::read_dir(current_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        let metadata = fs::metadata(&path)?;
-        if metadata.is_file() {
-            if let Ok(content) = fs::read(path) {
-                result.push(Sample::from(content));
-            }
-        }
-    }
-
-    Ok(result)
 }
 
 
