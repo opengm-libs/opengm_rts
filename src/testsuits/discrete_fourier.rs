@@ -86,7 +86,7 @@ pub(crate) fn discrete_fourier_epsilon(sample: &Sample) -> TestResult {
     // use complex to complex fft.
     for i in 0..n {
         f.push(Complex64{
-            re: 2.0 * e[i] as f64 - 1.0,
+            re: (2 * e[i] as i8 - 1) as f64,
             im: 0.0,
         });
     }
@@ -106,30 +106,33 @@ pub(crate) fn discrete_fourier_epsilon(sample: &Sample) -> TestResult {
     TestResult { pv, qv }
 }
 
+const BITS_PARTTEN:[[f32;8];256] = {
+    let mut b = [[0.0;8];256];
+    let mut i = 0;
+    while i < 256{
+        let mut j = 0;
+        while j < 8{
+            b[i][j] = ((i >> (7-j)) & 1) as f32;
+            j += 1;
+        }
+        i += 1;
+    }
+    b
+};
+
 /// 离散傅里叶检测
+/// Note: we perform the FFT for e_i, not x_i = 2*e_i - 1, 
+/// Then the result will be f'_j = \sum_k e_k exp(-2*pi*i*j*k) = \sum_k (x_i+1)/2 exp(-2*pi*i*j*k)
+/// = (\sum_k x_i exp(-2*pi*i*j*k))/2 = f_j/2, except for j = 0, where f_0 = \sum(e_i) * 2 - n
 pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
     let n = sample.len();
+    let p = &BITS_PARTTEN;
     
-    // let mut e = Vec::with_capacity(n);
     let (mut e, mut f) = get_vec(n);
     e.clear();
 
-    let b8 = &sample.b;
-    let full_chunks = b8.len() & (!7);
-    for chunk in b8[..full_chunks].chunks_exact(8) {
-        let x = u64::from_be_bytes(chunk.try_into().unwrap());
-
-        // use real to complex fft.
-        for i in (0..64).rev() {
-            e.push(((x >> i) & 1) as f32);
-        }
-    }
-    if full_chunks < b8.len() {
-        let tail = u64_from_be_slice(&b8[full_chunks..]);
-        let tail_bits = (b8.len() & 7) * 8;
-        for i in 0..tail_bits {
-            e.push(((tail >> (63 - i)) & 1) as f32);
-        }
+    for b in &sample.b{
+        e.extend_from_slice(&BITS_PARTTEN[*b as usize]);
     }
 
     f.resize(n/2+1, Complex32::default());
@@ -144,10 +147,12 @@ pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
         1
     } else {
         0
-    };
+    }; 
+    let t2 = t * t / 4.0;
     n1 += f[1..=(n / 2 - 1)]
         .iter()
-        .map(|x| if (x.abs() as f64) < t / 2.0 { 1 } else { 0 })
+        // .map(|x| if ((x.abs() as f64)) < t/2.0 { 1 } else { 0 })
+        .map(|x| if ((x.re * x.re + x.im * x.im) as f64) < t2 { 1 } else { 0 })
         .sum::<i64>();
     
     
@@ -158,6 +163,7 @@ pub(crate) fn discrete_fourier_u8(sample: &Sample) -> TestResult {
     put_vec((e,f));
     TestResult { pv, qv }
 }
+
 
 /// 离散傅里叶检测
 pub(crate) fn discrete_fourier_u64(sample: &Sample) -> TestResult {
@@ -263,7 +269,7 @@ mod bench {
     fn bench_test_u8(b: &mut Bencher) {
         let sample: Sample = E.into();
 
-        // 8,528,185.45
+        // 6,864,074.95 ns/iter
         b.iter(|| {
             test::black_box(discrete_fourier_u8(&sample));
         });

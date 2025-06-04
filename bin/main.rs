@@ -244,8 +244,8 @@ mod tests {
     #[test]
     fn test_rts() {
         // const NBITS :usize = 100*100*10000 / 8;
-        // const NBITS: usize = 100 * 10000 / 8;
-        const NBITS: usize = 20000 / 8; // 2w bits
+        const NBITS: usize = 100 * 10000 / 8;
+        // const NBITS: usize = 20000 / 8; // 2w bits
         let testers = get_testers(&ALL_TESTS_FUNCS, NBITS);
         // println!("{:?}", testers);
         let mut samples: Vec<Sample> = Vec::new();
