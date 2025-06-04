@@ -1,6 +1,6 @@
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Display;
-use rayon::prelude::*;
 
 use crate::Sample;
 use crate::*;
@@ -83,13 +83,13 @@ pub const ALL_TESTS_FUNCS: &[TestFuncs] = &[
     TestFuncs::LongestRun1,
     TestFuncs::BinaryDerivative,
     TestFuncs::Autocorrelation,
-    TestFuncs::Rank, // 0.2
+    TestFuncs::Rank,                  // 0.2
     TestFuncs::CumulativeSumsForward, // 0.1
     TestFuncs::CumulativeSumsBackward,
-    TestFuncs::ApproximateEntropy,//0.2
-    TestFuncs::LinearComplexity, // 2.5
-    TestFuncs::Universal, // 0.1
-    TestFuncs::DiscreteFourier,//1.1
+    TestFuncs::ApproximateEntropy, //0.2
+    TestFuncs::LinearComplexity,   // 2.5
+    TestFuncs::Universal,          // 0.1
+    TestFuncs::DiscreteFourier,    //1.1
 ];
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -141,6 +141,23 @@ impl Tester {
     }
 }
 
+fn filt_funcs(funcs: &[TestFuncs], bits: usize) -> Vec<TestFuncs> {
+    let mut res = Vec::new();
+    if bits <= 20000 {
+        for f in funcs {
+            match *f {
+                TestFuncs::Rank | TestFuncs::LinearComplexity | TestFuncs::Universal => {}
+                _ => {
+                    res.push(*f);
+                }
+            }
+        }
+    }else{
+        res = Vec::from(funcs);
+    }
+    res
+}
+
 fn get_param(f: TestFuncs, bits: usize) -> Option<Vec<i32>> {
     if bits <= 20000 {
         match f {
@@ -174,22 +191,23 @@ fn get_param(f: TestFuncs, bits: usize) -> Option<Vec<i32>> {
             TestFuncs::LongestRun0 | TestFuncs::LongestRun1 => Some(vec![10000]),
             TestFuncs::BinaryDerivative => Some(vec![3, 7, 15]),
             TestFuncs::Autocorrelation => Some(vec![1, 2, 8, 16, 32]),
-            TestFuncs::ApproximateEntropy => Some(vec![5,7]),
+            TestFuncs::ApproximateEntropy => Some(vec![5, 7]),
             TestFuncs::LinearComplexity => Some(vec![5000]),
             _ => None,
         }
     }
 }
 
+// Note: if bits <= 20000, there are no Rank, LinearComplexity and Universal tests.
 pub fn get_testers(funcs: &[TestFuncs], bits: usize) -> Vec<Tester> {
     let mut res: Vec<_> = Vec::new();
-    for f in funcs {
-        if let Some(params) = get_param(*f, bits) {
+    for f in filt_funcs(funcs, bits) {
+        if let Some(params) = get_param(f, bits) {
             for param in params {
-                res.push(Tester { f: *f, param: Some(param) });
+                res.push(Tester { f: f, param: Some(param) });
             }
         } else {
-            res.push(Tester { f: *f, param: None });
+            res.push(Tester { f: f, param: None });
         }
     }
     res
@@ -200,21 +218,20 @@ pub fn waterline(alpha: f64, s: usize) -> usize {
     (s * (1.0 - alpha - 3.0 * (alpha * (1.0 - alpha) / s).sqrt())).ceil() as usize
 }
 
-
 pub fn sample_test(s: &Sample, testers: &[Tester]) -> HashMap<Tester, TestResult> {
     let mut result = HashMap::<Tester, TestResult>::new();
 
     let reverse = if USE_U8 { (s.b[0] & 1) == 0 } else { (s.b64[0] & 1) == 0 };
-    if reverse{
+    if reverse {
         for t in testers.iter().rev() {
             result.insert(*t, t.test(s));
         }
-    }else{
+    } else {
         for t in testers {
             result.insert(*t, t.test(s));
         }
     }
-    
+
     return result;
 }
 
@@ -232,7 +249,6 @@ pub fn compute_qvalue_distribution(res: &Vec<HashMap<Tester, TestResult>>, f: Te
     }
     qvalue_distribution(&qvalues, SAMPLE_DISTRIBUTION_K)
 }
-
 
 // return p_value result and q_value result.
 // p_value result returns [samples[0].Result, samples[1].Result,...]
@@ -255,12 +271,11 @@ pub fn randomness_test(samples: &Vec<Sample>, testers: &[Tester]) -> (Vec<HashMa
     (presult, qresult)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-    use rand::prelude::*;
     use super::*;
+    use rand::prelude::*;
+    use std::time::Instant;
 
     // cargo test --release --package opengm_rts --lib -- tester::tests::test_rts --exact --show-output
     #[test]

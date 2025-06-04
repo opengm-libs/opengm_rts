@@ -244,7 +244,8 @@ mod tests {
     #[test]
     fn test_rts() {
         // const NBITS :usize = 100*100*10000 / 8;
-        const NBITS: usize = 100 * 10000 / 8;
+        // const NBITS: usize = 100 * 10000 / 8;
+        const NBITS: usize = 20000 / 8; // 2w bits
         let testers = get_testers(&ALL_TESTS_FUNCS, NBITS);
         // println!("{:?}", testers);
         let mut samples: Vec<Sample> = Vec::new();
@@ -264,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_gen_data() {
-        const NBITS: usize = 100 * 100 * 10000 / 8;
+        const NBITS: usize = 10000 * 10000 / 8;
         let mut data = vec![0u8; NBITS];
         let mut rng = rand::thread_rng();
         for i in 0..1000 {
